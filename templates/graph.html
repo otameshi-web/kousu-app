@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>作業工数グラフ</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+        }
+        h1 {
+            color: #333;
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>作業者別 工数グラフ</h1>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% elif labels|length == 0 %}
+        <p>表示するデータがありません。</p>
+    {% else %}
+        <canvas id="myChart" width="800" height="400"></canvas>
+        <script>
+            const ctx = document.getElementById('myChart').getContext('2d');
+            const chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: {{ labels | tojson }},
+                    datasets: {{ datasets | tojson }}
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: true,
+                            text: '作業種別ごとの工数（時間）'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '時間'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: '作業者'
+                            }
+                        }
+                    }
+                }
+            });
+        </script>
+    {% endif %}
+
+</body>
+</html>

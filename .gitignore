@@ -1,0 +1,26 @@
+# --- セキュリティ関連 ---
+.env
+*.key
+*.pem
+
+# --- Python キャッシュ ---
+__pycache__/
+*.py[cod]
+*.pyo
+
+# --- VSCodeなどエディタ関連 ---
+.vscode/
+.idea/
+
+# --- ログ・一時ファイル ---
+*.log
+*.tmp
+
+# --- OSによる一時ファイル ---
+.DS_Store
+Thumbs.db
+
+# --- Pipenv / Poetry / Virtualenv など ---
+.venv/
+venv/
+pip-log.txt

@@ -81,3 +81,7 @@ async def read_graph(request: Request):
 
     except Exception as e:
         return f"データ処理エラー: {str(e)}"
+
+@app.get("/graph/menu", response_class=HTMLResponse)
+async def graph_menu(request: Request):
+    return templates.TemplateResponse("graph_menu.html", {"request": request})

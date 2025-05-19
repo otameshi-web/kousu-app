@@ -1,10 +1,10 @@
-# main.py の最上部でFastAPIを起動できるようにしておく必要があります
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import os
 import pandas as pd
+import chardet  # 🔸文字コード判定ライブラリ
 
 app = FastAPI()
 
@@ -13,6 +13,11 @@ templates = Jinja2Templates(directory="templates")
 
 CSV_PATH = os.path.join("data", "工数データ.csv")
 
+def detect_encoding(file_path):
+    with open(file_path, 'rb') as f:
+        result = chardet.detect(f.read(10000))
+        return result['encoding']
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -20,7 +25,8 @@ async def index(request: Request):
 @app.get("/graph", response_class=HTMLResponse)
 async def read_graph(request: Request):
     try:
-        df = pd.read_csv(CSV_PATH, encoding="utf-8")
+        encoding = detect_encoding(CSV_PATH)
+        df = pd.read_csv(CSV_PATH, encoding=encoding)
         df.columns = [col.strip() for col in df.columns]
         df = df.dropna(subset=["日付", "作業者", "作業種別", "時間"])
         df["時間"] = pd.to_numeric(df["時間"], errors="coerce")

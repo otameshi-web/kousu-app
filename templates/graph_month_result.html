@@ -42,64 +42,75 @@
     </style>
 </head>
 <body>
-    <header>EKMS【エレベーター管理マネージメントシステム】</header>
+<header>NEMMS【日本エレベーター管理マネージメントシステム】</header>
 
-    <div class="container">
-        <h2>{{ year }}年{{ month }}月の工数グラフ</h2>
+<div class="container">
+    <h2>{{ year }}年{{ month }}月の工数グラフ</h2>
 
-        <h4>作業時間合計（時間）</h4>
-        <canvas id="timeChart"></canvas>
+    <h4>作業時間合計（時間＋工数）</h4>
+    <canvas id="timeChart"></canvas>
 
-        <h4>作業件数（件）</h4>
-        <canvas id="countChart"></canvas>
+    <h4>作業件数（件）</h4>
+    <canvas id="countChart"></canvas>
 
-        <a href="/graph/month" class="btn-return">戻る</a>
-    </div>
+    <a href="/graph/month" class="btn-return">戻る</a>
+</div>
 
-    <script>
-        const rawDatasets = {{ datasets | tojson }};
-        const labels = {{ labels | tojson }};
+<script>
+    const rawDatasets = {{ datasets | tojson }};
+    const labels = {{ labels | tojson }};
+    const workTypeCount = rawDatasets.length / 2;
 
-        const colorPalette = [
-            "rgba(255, 99, 132, 0.7)",
-            "rgba(54, 162, 235, 0.7)",
-            "rgba(255, 206, 86, 0.7)",
-            "rgba(75, 192, 192, 0.7)",
-            "rgba(153, 102, 255, 0.7)",
-            "rgba(255, 159, 64, 0.7)",
-            "rgba(199, 199, 199, 0.7)",
-            "rgba(255, 99, 71, 0.7)",
-            "rgba(100, 149, 237, 0.7)",
-            "rgba(60, 179, 113, 0.7)"
-        ];
+    const colorPalette = [
+        "rgba(255, 99, 132, 0.7)", "rgba(54, 162, 235, 0.7)", "rgba(255, 206, 86, 0.7)",
+        "rgba(75, 192, 192, 0.7)", "rgba(153, 102, 255, 0.7)", "rgba(255, 159, 64, 0.7)",
+        "rgba(199, 199, 199, 0.7)", "rgba(255, 99, 71, 0.7)", "rgba(100, 149, 237, 0.7)",
+        "rgba(60, 179, 113, 0.7)"
+    ];
 
-        const timeDatasets = [];
-        const countDatasets = [];
+    const timeDatasets = [];
+    const countDatasets = [];
 
-        rawDatasets.forEach((ds, i) => {
-            const color = colorPalette[i % colorPalette.length];
-            const base = {
-                label: ds.label.replace(/（時間|件数）/, ""),
-                data: ds.data,
-                backgroundColor: color
-            };
-            if (ds.label.includes("時間")) {
-                timeDatasets.push(base);
-            } else {
-                countDatasets.push(base);
-            }
-        });
+    rawDatasets.forEach((ds, i) => {
+        const color = colorPalette[i % colorPalette.length];
+        const base = {
+            label: ds.label.replace(/（時間|件数）/, ""),
+            data: ds.data,
+            backgroundColor: color,
+            stack: 'stack1'
+        };
+        if (ds.label.includes("時間")) {
+            timeDatasets.push(base);
+        } else {
+            countDatasets.push(base);
+        }
+    });
 
-        const commonOptions = {
+    const displayCondition = workTypeCount > 1;
+
+    // ------- 時間グラフ -------
+    const timeChart = new Chart(document.getElementById('timeChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: timeDatasets
+        },
+        options: {
             responsive: true,
             plugins: {
                 datalabels: {
-                    anchor: 'end',
-                    align: 'top',
-                    font: {
-                        weight: 'bold'
+                    display: displayCondition,
+                    anchor: 'center',
+                    align: 'center',
+                    formatter: (value) => {
+                        const h = (value / 60).toFixed(1);
+                        const k = (value / 420).toFixed(1);
+                        return `${h}h\n(${k}工数)`;
                     },
-                    formatter: Math.round
+                    font: {
+                        weight: 'bold',
+                        size: 10
+                    }
                 },
                 legend: {
                     position: 'top'
@@ -110,21 +121,94 @@
                     beginAtZero: true
                 }
             }
-        };
+        },
+        plugins: [ChartDataLabels, {
+            id: 'totalTimeLabel',
+            afterDatasetsDraw(chart) {
+                const ctx = chart.ctx;
+                const x = chart.scales.x;
+                const y = chart.scales.y;
 
-        new Chart(document.getElementById('timeChart'), {
-            type: 'bar',
-            data: { labels: labels, datasets: timeDatasets },
-            options: commonOptions,
-            plugins: [ChartDataLabels]
-        });
+                labels.forEach((label, i) => {
+                    let total = 0;
+                    chart.data.datasets.forEach(ds => total += ds.data[i] || 0);
 
-        new Chart(document.getElementById('countChart'), {
-            type: 'bar',
-            data: { labels: labels, datasets: countDatasets },
-            options: commonOptions,
-            plugins: [ChartDataLabels]
-        });
-    </script>
+                    const centerX = x.getPixelForValue(label);
+                    const topY = y.getPixelForValue(total);
+                    const h = (total / 60).toFixed(1);
+                    const k = (total / 420).toFixed(1);
+                    const lines = [`${h}h`, `(${k}工数)`];
+
+                    ctx.fillStyle = '#000';
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+
+                    if (workTypeCount === 1 || displayCondition) {
+                        lines.forEach((line, idx) => {
+                            ctx.fillText(line, centerX, topY - 5 - (12 * (1 - idx)));
+                        });
+                    }
+                });
+            }
+        }]
+    });
+
+    // ------- 件数グラフ -------
+    const countChart = new Chart(document.getElementById('countChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: countDatasets
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                datalabels: {
+                    display: displayCondition,
+                    anchor: 'center',
+                    align: 'center',
+                    font: {
+                        weight: 'bold',
+                        size: 10
+                    },
+                    formatter: (v) => v
+                },
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        },
+        plugins: [ChartDataLabels, {
+            id: 'totalCountLabel',
+            afterDatasetsDraw(chart) {
+                const ctx = chart.ctx;
+                const x = chart.scales.x;
+                const y = chart.scales.y;
+
+                labels.forEach((label, i) => {
+                    let total = 0;
+                    chart.data.datasets.forEach(ds => total += ds.data[i] || 0);
+
+                    const centerX = x.getPixelForValue(label);
+                    const topY = y.getPixelForValue(total);
+
+                    if (workTypeCount === 1 || displayCondition) {
+                        ctx.fillStyle = '#000';
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText(total, centerX, topY - 5);
+                    }
+                });
+            }
+        }]
+    });
+</script>
 </body>
 </html>

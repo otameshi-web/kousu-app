@@ -48,29 +48,42 @@ async def graph_term(request: Request):
         "terms": term_list,
         "work_types": work_types
     })
-
 @app.post("/graph/term/result", response_class=HTMLResponse)
-async def graph_term_result(request: Request, term: str = Form(...), work_types: List[str] = Form(...)):
+async def graph_term_result(
+    request: Request,
+    term: str = Form(...),
+    work_types: List[str] = Form(...)
+):
     try:
         df = pd.read_csv(CSV_PATH, encoding="utf-8")
     except UnicodeDecodeError:
         df = pd.read_csv(CSV_PATH, encoding="cp932")
+
     df.columns = [col.strip() for col in df.columns]
-    df = df.rename(columns={"作業日": "日付", "作業実施者": "作業者", "作業種別": "作業種別", "作業時間": "時間"})
+    df = df.rename(columns={
+        "作業日": "日付",
+        "作業実施者": "作業者",
+        "作業種別": "作業種別",
+        "作業時間": "時間"
+    })
+
     df["日付"] = pd.to_datetime(df["日付"], errors="coerce")
+    df = df.dropna(subset=["日付", "作業種別", "作業者", "時間"])
     df["時間"] = pd.to_numeric(df["時間"], errors="coerce")
-    df = df.dropna(subset=["日付", "作業者", "作業種別", "時間"])
+    df = df.dropna()
 
     def get_term(date):
         y = date.year
         return f"{y-1}年5月～{y}年4月" if date.month < 5 else f"{y}年5月～{y+1}年4月"
+
     df["期"] = df["日付"].apply(get_term)
-
-    df = df[(df["期"] == term) & (df["作業種別"].isin(work_types))]
+    df = df[df["期"] == term]
+    df = df[df["作業種別"].isin(work_types)]
     df = df[~df["作業者"].str.contains("削除済み", na=False)]
-    df["年月"] = df["日付"].dt.strftime("%Y-%m")
 
+    df["年月"] = df["日付"].dt.strftime("%Y-%m")
     grouped = df.groupby(["年月", "作業種別"])
+
     result = defaultdict(lambda: {"時間合計": 0.0, "件数": 0})
     for (ym, wt), group in grouped:
         result[(ym, wt)]["時間合計"] += group["時間"].sum()
@@ -78,18 +91,31 @@ async def graph_term_result(request: Request, term: str = Form(...), work_types:
 
     labels = sorted(set(ym for ym, _ in result))
     datasets = []
+    max_time = 0
+    max_count = 0
+
     for wt in work_types:
         time_data = [result[(ym, wt)]["時間合計"] if (ym, wt) in result else 0 for ym in labels]
         count_data = [result[(ym, wt)]["件数"] if (ym, wt) in result else 0 for ym in labels]
         datasets.append({"label": f"{wt}（時間）", "data": time_data})
         datasets.append({"label": f"{wt}（件数）", "data": count_data})
 
+        max_time = max(max_time, max(time_data, default=0))
+        max_count = max(max_count, max(count_data, default=0))
+
+    # 上限を少し余裕をもって設定（10%増し）
+    suggested_max_time = round(max_time * 1.1, 1)
+    suggested_max_count = int(max_count * 1.1 + 1)
+
     return templates.TemplateResponse("graph_term_result.html", {
         "request": request,
         "term": term,
         "labels": labels,
-        "datasets": datasets
+        "datasets": datasets,
+        "suggested_max_time": suggested_max_time,
+        "suggested_max_count": suggested_max_count
     })
+
 # ==========================
 # Part 3: 月別・個人比較関連
 # ==========================
@@ -204,6 +230,7 @@ async def graph_person_type_input(request: Request):
 
 
 # 作業種別比較表（表示）
+# 作業種別比較表（表示）
 @app.post("/graph/person/type/result", response_class=HTMLResponse)
 async def graph_person_type_result(
     request: Request,
@@ -239,6 +266,14 @@ async def graph_person_type_result(
             "件数": int(len(group))
         }
         for wt, group in grouped
+    }
+
+    # 合計データを追加
+    total_time = sum(item["時間合計"] for item in result.values())
+    total_count = sum(item["件数"] for item in result.values())
+    result["合計"] = {
+        "時間合計": total_time,
+        "件数": total_count
     }
 
     labels = list(result.keys())

@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>{{ year }}年{{ month }}月 {{ user }} の作業種別比較</title>
+    <title>{{ year }}年{{ month }}月 {{ user }}さんの作業種別別グラフ</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
@@ -11,111 +11,123 @@
             background-color: #fff8f0;
             font-family: 'Segoe UI', sans-serif;
         }
+
         header {
             background-color: #000;
             color: white;
             padding: 20px;
             font-size: 1.5rem;
         }
+
         .container {
             padding: 30px;
         }
+
         .btn-return {
             background-color: #6c757d;
             color: white;
-            padding: 8px 20px;
+            padding: 10px 20px;
             border: none;
             border-radius: 8px;
-            display: inline-block;
-            margin-top: 20px;
             text-decoration: none;
         }
+
         .btn-return:hover {
             background-color: #5a6268;
         }
+
         canvas {
             margin-bottom: 40px;
         }
     </style>
 </head>
 <body>
-    <header>EKMS【エレベーター管理マネージメントシステム】</header>
-    <div class="container">
-        <h2>{{ year }}年{{ month }}月 {{ user }} の作業種別比較</h2>
+<header>NEMMS【日本エレベーター管理マネージメントシステム】</header>
 
-        <h4>作業時間合計（時間）</h4>
-        <canvas id="timeChart"></canvas>
+<div class="container">
+    <h2>{{ year }}年{{ month }}月 {{ user }}さんの作業種別別グラフ</h2>
 
-        <h4>作業件数（件）</h4>
-        <canvas id="countChart"></canvas>
+    <h4>作業時間（時間＋工数）</h4>
+    <canvas id="timeChart"></canvas>
 
-        <a href="/graph/person/type" class="btn-return">戻る</a>
-    </div>
+    <h4>作業件数（件）</h4>
+    <canvas id="countChart"></canvas>
 
-    <script>
-        const labels = {{ labels | tojson }};
-        const datasets = {{ datasets | tojson }};
+    <a href="/graph/person/type" class="btn-return">戻る</a>
+</div>
 
-        const colorPalette = [
-            "rgba(255, 99, 132, 0.7)",
-            "rgba(54, 162, 235, 0.7)",
-            "rgba(255, 206, 86, 0.7)",
-            "rgba(75, 192, 192, 0.7)",
-            "rgba(153, 102, 255, 0.7)",
-            "rgba(255, 159, 64, 0.7)",
-            "rgba(199, 199, 199, 0.7)",
-            "rgba(255, 99, 71, 0.7)",
-            "rgba(100, 149, 237, 0.7)",
-            "rgba(60, 179, 113, 0.7)"
-        ];
+<script>
+    const rawDatasets = {{ datasets | tojson }};
+    const labels = {{ labels | tojson }};
+    const isSingle = labels.length === 2;  // 作業種別が1種＋合計なら true
 
-        const timeDataset = {
-            label: datasets[0].label,
-            data: datasets[0].data,
-            backgroundColor: colorPalette.slice(0, datasets[0].data.length)
-        };
+    const colorPalette = [
+        "rgba(255, 99, 132, 0.7)", "rgba(54, 162, 235, 0.7)", "rgba(255, 206, 86, 0.7)",
+        "rgba(75, 192, 192, 0.7)", "rgba(153, 102, 255, 0.7)", "rgba(255, 159, 64, 0.7)",
+        "rgba(199, 199, 199, 0.7)", "rgba(255, 99, 71, 0.7)", "rgba(100, 149, 237, 0.7)",
+        "rgba(60, 179, 113, 0.7)", "rgba(105, 105, 105, 0.7)"  // 合計用
+    ];
 
-        const countDataset = {
-            label: datasets[1].label,
-            data: datasets[1].data,
-            backgroundColor: colorPalette.slice(0, datasets[1].data.length)
-        };
+    const timeData = rawDatasets[0].data;
+    const countData = rawDatasets[1].data;
 
-        const commonOptions = {
+    function formatTimeLabel(minutes) {
+        const hours = (minutes / 60).toFixed(1);
+        const units = (minutes / 420).toFixed(1);
+        return `${hours}h\n(${units}工数)`;
+    }
+
+    const timeChart = new Chart(document.getElementById("timeChart"), {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "時間（h）",
+                data: timeData,
+                backgroundColor: labels.map((_, i) => colorPalette[i % colorPalette.length])
+            }]
+        },
+        options: {
             responsive: true,
             plugins: {
+                legend: { display: false },
                 datalabels: {
-                    anchor: 'end',
-                    align: 'top',
-                    font: {
-                        weight: 'bold'
-                    },
-                    formatter: Math.round
-                },
-                legend: {
-                    position: 'top'
+                    anchor: isSingle ? 'end' : 'center',
+                    align: isSingle ? 'end' : 'center',
+                    formatter: formatTimeLabel,
+                    font: { weight: 'bold' }
                 }
             },
-            scales: {
-                y: {
-                    beginAtZero: true
+            scales: { y: { beginAtZero: true } }
+        },
+        plugins: [ChartDataLabels]
+    });
+
+    const countChart = new Chart(document.getElementById("countChart"), {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "件数（件）",
+                data: countData,
+                backgroundColor: labels.map((_, i) => colorPalette[i % colorPalette.length])
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false },
+                datalabels: {
+                    anchor: isSingle ? 'end' : 'center',
+                    align: isSingle ? 'end' : 'center',
+                    formatter: Math.round,
+                    font: { weight: 'bold' }
                 }
-            }
-        };
-
-        new Chart(document.getElementById('timeChart'), {
-            type: 'bar',
-            data: { labels: labels, datasets: [timeDataset] },
-            options: commonOptions,
-            plugins: [ChartDataLabels]
-        });
-
-        new Chart(document.getElementById('countChart'), {
-            type: 'bar',
-            data: { labels: labels, datasets: [countDataset] },
-            options: commonOptions,
-            plugins: [ChartDataLabels]
-        });
-    </script>
+            },
+            scales: { y: { beginAtZero: true } }
+        },
+        plugins: [ChartDataLabels]
+    });
+</script>
 </body>
 </html>

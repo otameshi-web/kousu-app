@@ -403,7 +403,9 @@ async def graph_person_type_input(request: Request):
 
 
 # 作業種別比較表（表示）
-# 作業種別比較表（表示）
+from collections import defaultdict
+import os
+
 @app.post("/graph/person/type/result", response_class=HTMLResponse)
 async def graph_person_type_result(
     request: Request,
@@ -411,60 +413,127 @@ async def graph_person_type_result(
     month: int = Form(...),
     user: str = Form(...)
 ):
+    color_list_rgba = [
+        "rgba(31, 119, 180, 0.7)", "rgba(255, 127, 14, 0.7)",
+        "rgba(44, 160, 44, 0.7)", "rgba(214, 39, 40, 0.7)",
+        "rgba(148, 103, 189, 0.7)", "rgba(140, 86, 75, 0.7)",
+        "rgba(227, 119, 194, 0.7)", "rgba(127, 127, 127, 0.7)"
+    ]
+
+    # ▼ 通常作業データ読み込み
     try:
         df = pd.read_csv(CSV_PATH, encoding="utf-8")
     except UnicodeDecodeError:
         df = pd.read_csv(CSV_PATH, encoding="cp932")
 
     df.columns = [col.strip() for col in df.columns]
-    df = df.rename(columns={
-        "作業日": "日付", "作業実施者": "作業者",
-        "作業種別": "作業種別", "作業時間": "時間"
-    })
+    df = df.rename(columns={"作業日": "日付", "作業実施者": "作業者", "作業種別": "作業種別", "作業時間": "時間"})
     df["日付"] = pd.to_datetime(df["日付"], errors="coerce")
     df["時間"] = pd.to_numeric(df["時間"], errors="coerce")
     df = df.dropna(subset=["日付", "作業者", "作業種別", "時間"])
+    df = df[(df["日付"].dt.year == year) & (df["日付"].dt.month == month) & (df["作業者"] == user) & (df["作業種別"] != "小計")]
+    grouped = df.groupby("作業種別").agg({"時間": "sum", "作業種別": "count"}).rename(columns={"作業種別": "件数"}).reset_index()
 
-    df = df[
-        (df["日付"].dt.year == year) &
-        (df["日付"].dt.month == month) &
-        (df["作業者"] == user)
-    ]
-    df = df[df["作業種別"] != "小計"]
+    # ▼ 検査データ読み込み
+    kensa_path = os.path.join("data", "検査工数データ.csv")
+    try:
+        kensa_df = pd.read_csv(kensa_path, encoding="utf-8")
+    except UnicodeDecodeError:
+        kensa_df = pd.read_csv(kensa_path, encoding="cp932")
+    kensa_df.columns = [col.strip() for col in kensa_df.columns]
+    kensa_df = kensa_df.rename(columns={"作業日": "日付", "作業ID": "作業ID", "作業実施者": "作業者", "作業項目（箇所）": "項目", "作業時間": "時間"})
+    kensa_df["日付"] = pd.to_datetime(kensa_df["日付"], errors="coerce")
+    kensa_df["時間"] = pd.to_numeric(kensa_df["時間"], errors="coerce")
+    kensa_df = kensa_df.dropna(subset=["日付", "項目", "作業ID"])
+    kensa_df = kensa_df[
+        (kensa_df["日付"].dt.year == year) & (kensa_df["日付"].dt.month == month) &
+        (kensa_df["作業者"] == user) & (kensa_df["項目"].isin(["法定検査", "社内検査"]))
+    ].drop_duplicates(subset=["作業ID", "項目"])
 
-    grouped = df.groupby("作業種別")
-    result = {
-        wt: {
-            "時間合計": float(group["時間"].sum()),
-            "件数": int(len(group))
-        }
-        for wt, group in grouped
-    }
+    kensa_time = float(kensa_df["時間"].sum())
+    kensa_count = int(len(kensa_df))
 
-    # 合計データを追加
-    total_time = sum(item["時間合計"] for item in result.values())
-    total_count = sum(item["件数"] for item in result.values())
-    result["合計"] = {
-        "時間合計": total_time,
-        "件数": total_count
-    }
+    work_labels = grouped["作業種別"].tolist()
+    labels = work_labels + ["合計"]
 
-    labels = list(result.keys())
-    time_data = [result[wt]["時間合計"] for wt in labels]
-    count_data = [result[wt]["件数"] for wt in labels]
+    total_time = float(grouped["時間"].sum())
+    total_count = int(grouped["件数"].sum())
 
-    datasets = [
-        {"label": "時間（h）", "data": time_data},
-        {"label": "件数（件）", "data": count_data}
-    ]
+    time_datasets, count_datasets = [], []
+
+    for idx, wt in enumerate(work_labels):
+        color = color_list_rgba[idx % len(color_list_rgba)]
+        time_data = [0] * len(labels)
+        count_data = [0] * len(labels)
+
+        if wt == "点検及び検査":
+            remain_time = float(grouped.loc[grouped["作業種別"] == wt, "時間"].values[0]) - kensa_time
+            remain_count = int(grouped.loc[grouped["作業種別"] == wt, "件数"].values[0]) - kensa_count
+
+            # ▼ 検査部分
+            time_data[labels.index(wt)] = kensa_time
+            time_datasets.append({
+                "label": "検査（時間）", "data": time_data.copy(),
+                "stack": wt, "backgroundColor": "rgba(255, 127, 14, 0.7)"
+            })
+            time_data[labels.index(wt)] = remain_time
+            time_datasets.append({
+                "label": "点検（残り）（時間）", "data": time_data.copy(),
+                "stack": wt, "backgroundColor": "rgba(44, 160, 44, 0.7)"
+            })
+
+            count_data[labels.index(wt)] = kensa_count
+            count_datasets.append({
+                "label": "検査（件数）", "data": count_data.copy(),
+                "stack": wt, "backgroundColor": "rgba(255, 127, 14, 0.7)"
+            })
+            count_data[labels.index(wt)] = remain_count
+            count_datasets.append({
+                "label": "点検（残り）（件数）", "data": count_data.copy(),
+                "stack": wt, "backgroundColor": "rgba(44, 160, 44, 0.7)"
+            })
+        else:
+            time_val = float(grouped.loc[grouped["作業種別"] == wt, "時間"].values[0])
+            count_val = int(grouped.loc[grouped["作業種別"] == wt, "件数"].values[0])
+            time_data[labels.index(wt)] = time_val
+            count_data[labels.index(wt)] = count_val
+            time_datasets.append({
+                "label": f"{wt}（時間）", "data": time_data,
+                "stack": "main", "backgroundColor": color
+            })
+            count_datasets.append({
+                "label": f"{wt}（件数）", "data": count_data,
+                "stack": "main", "backgroundColor": color
+            })
+
+    # 合計棒（全体合計）
+    time_data = [0] * len(labels)
+    count_data = [0] * len(labels)
+    time_data[-1] = total_time
+    count_data[-1] = total_count
+    time_datasets.append({
+        "label": "合計（時間）", "data": time_data,
+        "stack": "合計", "backgroundColor": "rgba(127, 127, 127, 0.7)"
+    })
+    count_datasets.append({
+        "label": "合計（件数）", "data": count_data,
+        "stack": "合計", "backgroundColor": "rgba(127, 127, 127, 0.7)"
+    })
+
+    # 「点検及び検査」の積み上げ合計値（表示用）
+    tenken_kensa_total_time = kensa_time + remain_time
+    tenken_kensa_total_count = kensa_count + remain_count
 
     return templates.TemplateResponse("graph_person_type_result.html", {
         "request": request,
         "labels": labels,
-        "datasets": datasets,
+        "time_datasets": time_datasets,
+        "count_datasets": count_datasets,
         "year": year,
         "month": month,
-        "user": user
+        "user": user,
+        "tenken_kensa_total_time": tenken_kensa_total_time,
+        "tenken_kensa_total_count": tenken_kensa_total_count
     })
 
 @app.get("/graph/person/period", response_class=HTMLResponse)

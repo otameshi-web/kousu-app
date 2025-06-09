@@ -57,23 +57,23 @@
 </div>
 
 <script>
-    const rawDatasets = {{ datasets | tojson }};
+    const datasets = {{ datasets | tojson }};
     const labels = {{ labels | tojson }};
-    const isSingle = labels.length === 2;  // 作業種別が1種＋合計なら true
 
     const colorPalette = [
         "rgba(255, 99, 132, 0.7)", "rgba(54, 162, 235, 0.7)", "rgba(255, 206, 86, 0.7)",
         "rgba(75, 192, 192, 0.7)", "rgba(153, 102, 255, 0.7)", "rgba(255, 159, 64, 0.7)",
         "rgba(199, 199, 199, 0.7)", "rgba(255, 99, 71, 0.7)", "rgba(100, 149, 237, 0.7)",
-        "rgba(60, 179, 113, 0.7)", "rgba(105, 105, 105, 0.7)"  // 合計用
+        "rgba(60, 179, 113, 0.7)"
     ];
 
-    const timeData = rawDatasets[0].data;
-    const countData = rawDatasets[1].data;
+    const timeData = datasets[0].data.map(m => +(m / 60).toFixed(1));  // 分→h換算
+    const countData = datasets[1].data;
 
-    function formatTimeLabel(minutes) {
-        const hours = (minutes / 60).toFixed(1);
-        const units = (minutes / 420).toFixed(1);
+    function formatTimeLabel(value, context) {
+        const rawMinutes = datasets[0].data[context.dataIndex];
+        const hours = (rawMinutes / 60).toFixed(1);
+        const units = (rawMinutes / 420).toFixed(1);
         return `${hours}h\n(${units}工数)`;
     }
 
@@ -92,13 +92,21 @@
             plugins: {
                 legend: { display: false },
                 datalabels: {
-                    anchor: isSingle ? 'end' : 'center',
-                    align: isSingle ? 'end' : 'center',
+                    anchor: 'end',
+                    align: 'end',
                     formatter: formatTimeLabel,
                     font: { weight: 'bold' }
                 }
             },
-            scales: { y: { beginAtZero: true } }
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    suggestedMax: Math.max(...timeData) * 1.1,
+                    ticks: {
+                        callback: value => `${value}h`
+                    }
+                }
+            }
         },
         plugins: [ChartDataLabels]
     });
@@ -118,13 +126,20 @@
             plugins: {
                 legend: { display: false },
                 datalabels: {
-                    anchor: isSingle ? 'end' : 'center',
-                    align: isSingle ? 'end' : 'center',
+                    anchor: 'end',
+                    align: 'end',
                     formatter: Math.round,
                     font: { weight: 'bold' }
                 }
             },
-            scales: { y: { beginAtZero: true } }
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: value => `${value}件`
+                    }
+                }
+            }
         },
         plugins: [ChartDataLabels]
     });

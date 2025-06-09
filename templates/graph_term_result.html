@@ -44,7 +44,17 @@ new Chart(document.getElementById('timeChart'), {
             },
             legend: { position: 'top' }
         },
-        scales: { x: { stacked: false }, y: { stacked: true, beginAtZero: true } }
+        scales: {
+            x: { stacked: false },
+            y: {
+                stacked: true,
+                beginAtZero: true,
+                ticks: {
+                    // 分 → 時間に変換して表示
+                    callback: v => (v / 60).toFixed(0)
+                }
+            }
+        }
     },
     plugins: [ChartDataLabels, {
         id: 'totalTimeLabel',
@@ -70,7 +80,6 @@ new Chart(document.getElementById('timeChart'), {
                     ctx.fillText(line, centerX, topY - 5 - (12 * (1 - idx)));
                 });
 
-                // 検査合計
                 if (workTypes.length === 1 && workTypes[0] === "点検及び検査") {
                     const kensaTotal = kensaTotals[label]?.時間合計 || 0;
                     if (kensaTotal > 0) {
@@ -124,7 +133,6 @@ new Chart(document.getElementById('countChart'), {
                 ctx.textBaseline = 'bottom';
                 ctx.fillText(mainTotal, centerX, topY - 5);
 
-                // 検査合計
                 if (workTypes.length === 1 && workTypes[0] === "点検及び検査") {
                     const kensaCount = kensaTotals[label]?.件数合計 || 0;
                     if (kensaCount > 0) {

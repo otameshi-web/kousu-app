@@ -511,6 +511,7 @@ async def graph_person_period_input(request: Request):
 # 期間指定比較表（表示）
 from collections import defaultdict
 import os
+from pandas.tseries.offsets import MonthEnd  # 追加
 
 @app.post("/graph/person/period/result", response_class=HTMLResponse)
 async def graph_person_period_result(
@@ -522,7 +523,7 @@ async def graph_person_period_result(
     user: str = Form(...),
     work_types: List[str] = Form(...)
 ):
-    # ▼ カラーパレット（10色）
+    # ▼ カラーパレット
     color_list_rgba = [
         "rgba(31, 119, 180, 0.7)", "rgba(255, 127, 14, 0.7)",
         "rgba(44, 160, 44, 0.7)", "rgba(214, 39, 40, 0.7)",
@@ -552,7 +553,7 @@ async def graph_person_period_result(
 
     df["年月"] = df["日付"].dt.strftime("%Y-%m")
     start = pd.to_datetime(f"{start_year}-{start_month:02d}")
-    end = pd.to_datetime(f"{end_year}-{end_month:02d}")
+    end = pd.to_datetime(f"{end_year}-{end_month:02d}") + MonthEnd(0)  # 修正ポイント！
     df = df[(df["日付"] >= start) & (df["日付"] <= end)]
 
     grouped = df.groupby(["年月", "作業種別"])

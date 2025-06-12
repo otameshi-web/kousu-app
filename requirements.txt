@@ -1,5 +1,7 @@
 fastapi
 uvicorn
+httpx
+aiofiles
 pandas
 jinja2
 python-multipart

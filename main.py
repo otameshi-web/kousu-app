@@ -667,8 +667,12 @@ import base64
 import httpx
 import aiofiles
 import datetime
+import logging
 
 app = FastAPI()
+
+# ログ出力設定
+logging.basicConfig(level=logging.INFO)
 
 # 環境設定
 GITHUB_API_URL = "https://api.github.com/repos/otameshi-web/kousu-app/contents/data"
@@ -681,8 +685,12 @@ def get_github_headers():
         "Accept": "application/vnd.github+json"
     }
 
-# JSONレコード → CSVテキスト
-def make_csv_content(records: list, is_kensa: bool = False):
+@app.get("/")
+def root():
+    return {"message": "FastAPI server is running."}
+
+# JSONレコード → CSVテキスト変換
+def make_csv_content(records: list):
     if not records:
         return ""
     headers = list(records[0].keys())
@@ -691,106 +699,103 @@ def make_csv_content(records: list, is_kensa: bool = False):
         csv_lines.append("\t".join(str(row.get(h, "")) for h in headers))
     return "\n".join(csv_lines)
 
-# GitHub へCSVファイルをアップロード
+# GitHub に CSV をアップロード
 async def upload_to_github(filename: str, content: str, commit_message: str):
     url = f"{GITHUB_API_URL}/{filename}"
-    async with httpx.AsyncClient() as client:
-        # SHA取得
-        sha = None
-        get_resp = await client.get(url, headers=get_github_headers())
-        if get_resp.status_code == 200:
-            sha = get_resp.json().get("sha")
+    try:
+        async with httpx.AsyncClient() as client:
+            sha = None
+            get_resp = await client.get(url, headers=get_github_headers())
+            if get_resp.status_code == 200:
+                sha = get_resp.json().get("sha")
 
-        data = {
-            "message": commit_message,
-            "content": base64.b64encode(content.encode()).decode(),
-            "branch": BRANCH
-        }
-        if sha:
-            data["sha"] = sha
+            data = {
+                "message": commit_message,
+                "content": base64.b64encode(content.encode()).decode(),
+                "branch": BRANCH
+            }
+            if sha:
+                data["sha"] = sha
 
-        put_resp = await client.put(url, headers=get_github_headers(), json=data)
-        return put_resp.status_code, put_resp.json()
+            put_resp = await client.put(url, headers=get_github_headers(), json=data)
+            return put_resp.status_code, put_resp.json()
+    except Exception as e:
+        logging.exception("GitHub upload error")
+        return 500, {"error": str(e)}
 
-# 【パターン1】JSONレコード形式のAPI（/api/receive_data）
+# パターン①: JSONレコード形式
 @app.post("/api/receive_data")
 async def receive_data(request: Request):
-    payload = await request.json()
-    records = payload.get("records", [])
-    if not records:
-        return JSONResponse(content={"error": "No records received."}, status_code=400)
+    try:
+        payload = await request.json()
+        records = payload.get("records", [])
+        if not records:
+            return JSONResponse(content={"error": "No records received."}, status_code=400)
 
-    is_kensa = any("項目" in r for r in records)
-    filename = "検査工数データ.csv" if is_kensa else "工数データ.csv"
-    csv_text = make_csv_content(records, is_kensa)
+        filename = "検査工数データ.csv" if any("項目" in r for r in records) else "工数データ.csv"
+        csv_text = make_csv_content(records)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    commit_msg = f"{filename} auto update at {now}"
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        commit_msg = f"{filename} auto update at {now}"
 
-    status, result = await upload_to_github(filename, csv_text, commit_msg)
+        status, result = await upload_to_github(filename, csv_text, commit_msg)
 
-    if status in (200, 201):
-        return {"message": "File updated successfully.", "details": result}
-    else:
-        return JSONResponse(content={"error": "GitHub upload failed", "details": result}, status_code=500)
+        if status in (200, 201):
+            return {"message": "File updated successfully.", "details": result}
+        else:
+            return JSONResponse(content={"error": "GitHub upload failed", "details": result}, status_code=status)
+    except Exception as e:
+        logging.exception("Error in /api/receive_data")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# 【パターン2】Base64 CSVファイル形式のAPI（/api/receive_csv）
+# パターン②: Base64形式のCSVファイル受け取り
 @app.post("/api/receive_csv")
 async def receive_csv(request: Request):
-    data = await request.json()
-    files = data.get("records", [])
+    try:
+        data = await request.json()
+        files = data.get("records", [])
 
-    target_files = {
-        "工数データ.csv": "data/工数データ.csv",
-        "検査工数データ.csv": "data/検査工数データ.csv"
-    }
+        target_files = {
+            "工数データ.csv": "data/工数データ.csv",
+            "検査工数データ.csv": "data/検査工数データ.csv"
+        }
 
-    for file in files:
-        name = file.get("name")
-        content = file.get("content")
+        for file in files:
+            name = file.get("name")
+            content = file.get("content")
 
-        if name in target_files and content:
-            decoded = base64.b64decode(content).decode("utf-8")
-            async with aiofiles.open(target_files[name], mode="w", encoding="utf-8") as f:
-                await f.write(decoded)
+            if name in target_files and content:
+                decoded = base64.b64decode(content).decode("utf-8")
+                async with aiofiles.open(target_files[name], mode="w", encoding="utf-8") as f:
+                    await f.write(decoded)
 
-    headers = get_github_headers()
+        async with httpx.AsyncClient() as client:
+            for name, path in target_files.items():
+                async with aiofiles.open(path, mode="r", encoding="utf-8") as f:
+                    content = await f.read()
 
-    async with httpx.AsyncClient() as client:
-        for name, path in target_files.items():
-            async with aiofiles.open(path, mode="r", encoding="utf-8") as f:
-                content = await f.read()
+                b64_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+                res = await client.get(
+                    f"https://api.github.com/repos/otameshi-web/kousu-app/contents/{path}?ref={BRANCH}",
+                    headers=get_github_headers()
+                )
+                sha = res.json().get("sha")
 
-            b64_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+                payload = {
+                    "message": "update csv files via API",
+                    "content": b64_content,
+                    "branch": BRANCH,
+                    "sha": sha
+                }
 
-            # 現在のSHAを取得
-            res = await client.get(
-                f"https://api.github.com/repos/otameshi-web/kousu-app/contents/{path}?ref={BRANCH}",
-                headers=headers
-            )
-            sha = res.json().get("sha")
+                await client.put(
+                    f"https://api.github.com/repos/otameshi-web/kousu-app/contents/{path}",
+                    headers=get_github_headers(),
+                    json=payload
+                )
 
-            payload = {
-                "message": "update csv files via API",
-                "content": b64_content,
-                "branch": BRANCH,
-                "sha": sha
-            }
+        return {"status": "success"}
 
-            await client.put(
-                f"https://api.github.com/repos/otameshi-web/kousu-app/contents/{path}",
-                headers=headers,
-                json=payload
-            )
-
-    return {"status": "success"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=10000, reload=False)
-
-@app.get("/")
-async def root():
-    return {"message": "FastAPI server is running."}
-
-
+    except Exception as e:
+        logging.exception("Error in /api/receive_csv")
+        return JSONResponse(content={"error": str(e)}, status_code=500)

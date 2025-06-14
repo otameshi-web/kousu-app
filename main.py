@@ -673,18 +673,17 @@ async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
-        print(f"[LOG] {records.filename} に {len(df)} 件のデータを受信")
-        if not df.empty:
-            print("[LOG] 最初の1件: ", df.iloc[0].to_dict())
-        else:
-            print("[LOG] データフレームが空でした")
-
-    df.to_csv("data/検査工数データ.csv", index=False, encoding="utf-8-sig")
-    return {"status": "success", "message": f"{len(df)} records saved"}
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # カラム統一と保存処理
+    # ログ出力（Renderログに表示されます）
+    print(f"[LOG] {records.filename} に {len(df)} 件のデータを受信")
+    if not df.empty:
+        print("[LOG] 最初の1件: ", df.iloc[0].to_dict())
+    else:
+        print("[LOG] データフレームが空でした")
+
+    # カラム統一と保存処理（必要に応じて調整）
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)

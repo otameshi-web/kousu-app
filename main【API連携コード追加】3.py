@@ -673,14 +673,6 @@ async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
-        print(f"[LOG] {records.filename} に {len(df)} 件のデータを受信")
-        if not df.empty:
-            print("[LOG] 最初の1件: ", df.iloc[0].to_dict())
-        else:
-            print("[LOG] データフレームが空でした")
-
-    df.to_csv("data/検査工数データ.csv", index=False, encoding="utf-8-sig")
-    return {"status": "success", "message": f"{len(df)} records saved"}
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 

@@ -1,20 +1,22 @@
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import pandas as pd
-import os
+
 from typing import List
 from collections import defaultdict
-from fastapi import Request
+import pandas as pd
 import csv
-from fastapi import UploadFile, File
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
+import os
 import io
+import datetime
 
-
+# アプリ本体とテンプレート・静的ファイルの設定
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -665,11 +667,19 @@ async def graph_person_period_result(
     })
 
 # API連携
+
+# --------------- 通常のルート群（グラフ描画など）ここに含まれる ---------------
+# 例：
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+# --------------- FastAPI API連携エンドポイント（楽々販売 POST受け口） ---------------
 @app.post("/api/receive_data")
 async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
 
-    # CSV読み込み（文字コードを自動フォールバック）
+    # CSV読み込み（文字コードを自動判定）
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
@@ -685,15 +695,15 @@ async def receive_data(records: UploadFile = File(...)):
     else:
         print("[LOG] データフレームが空でした")
 
-    # 作業時間の変換
+    # --------- 作業時間列の処理ロジック（ここが今回の修正ポイント） ---------
     if "作業時間（m）" in df.columns:
         df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce") / 60
     elif "作業時間" in df.columns:
-        df["作業時間"] = pd.to_numeric(df["作業時間"], errors="coerce") / 60
+        df["作業時間"] = pd.to_numeric(df["作業時間"], errors="coerce")
     else:
         df["作業時間"] = 0.0
 
-    # カラム統一と並び順
+    # --------- カラム統一・並び替え ---------
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)
@@ -703,6 +713,7 @@ async def receive_data(records: UploadFile = File(...)):
     save_path = os.path.join("data", "検査工数データ.csv")
     df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
+    # 成功レスポンス
     return JSONResponse(content={
         "status": "success",
         "message": f"{len(df)} records saved to {save_path}"

@@ -6,10 +6,6 @@ import pandas as pd
 import os
 from typing import List
 from collections import defaultdict
-from fastapi import Request
-import os
-import csv
-
 
 app = FastAPI()
 
@@ -661,23 +657,3 @@ async def graph_person_period_result(
         "kensa_totals": kensa_totals
     })
 
-# API連携
-@app.post("/api/receive_data")
-async def receive_data(request: Request):
-    data = await request.json()
-    records = data.get("records", [])
-
-    if not records:
-        return {"status": "error", "message": "No records found."}
-
-    # 保存ファイル名：検査工数データ_日付.csv → 常に固定ファイル名にしてもOK
-    save_path = os.path.join("data", "検査工数データ.csv")
-    fieldnames = records[0].keys()
-
-    # CSVとして保存
-    with open(save_path, mode="w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(records)
-
-    return {"status": "success", "message": f"{len(records)} records saved to {save_path}"}

@@ -7,11 +7,9 @@ import os
 from typing import List
 from collections import defaultdict
 from fastapi import Request
+import os
 import csv
 from fastapi import UploadFile, File
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
-import io
 
 
 app = FastAPI()
@@ -667,38 +665,30 @@ async def graph_person_period_result(
 # API連携
 @app.post("/api/receive_data")
 async def receive_data(records: UploadFile = File(...)):
-    contents = await records.read()
+    import pandas as pd
+    import io
+    import os
 
-    # CSV読み込み（文字コードを自動フォールバック）
+    # アップロードされたCSVを読み込む
+    contents = await records.read()
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # 受信ログ出力
+    # ログ出力（Renderログに表示されます）
     print(f"[LOG] {records.filename} に {len(df)} 件のデータを受信")
     if not df.empty:
         print("[LOG] 最初の1件: ", df.iloc[0].to_dict())
     else:
         print("[LOG] データフレームが空でした")
 
-    # "作業時間（m）" を "作業時間" (h) に変換
-    if "作業時間（m）" in df.columns:
-        df["作業時間"] = df["作業時間（m）"] / 60
-    else:
-        df["作業時間"] = 0.0
-
-    # 必要なカラムだけに限定（順序調整も）
+    # カラム統一と保存処理（必要に応じて調整）
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)
 
-    # 保存先パス
-    os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
     df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    return JSONResponse(content={
-        "status": "success",
-        "message": f"{len(df)} records saved to {save_path}"
-    })
+    return {"status": "success", "message": f"{len(df)} records saved to {save_path}"}

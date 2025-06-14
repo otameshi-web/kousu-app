@@ -678,20 +678,22 @@ async def receive_data(records: UploadFile = File(...)):
     # 列名クリーンアップ
     df.columns = [col.strip() for col in df.columns]
 
-    # 受信ログ出力
+    # ログ出力
     print(f"[LOG] {records.filename} に {len(df)} 件のデータを受信")
     if not df.empty:
         print("[LOG] 最初の1件: ", df.iloc[0].to_dict())
     else:
         print("[LOG] データフレームが空でした")
 
-    # 時間変換: 作業時間（m）→作業時間（h）
+    # 作業時間の変換
     if "作業時間（m）" in df.columns:
         df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce") / 60
+    elif "作業時間" in df.columns:
+        df["作業時間"] = pd.to_numeric(df["作業時間"], errors="coerce") / 60
     else:
         df["作業時間"] = 0.0
 
-    # カラム統一
+    # カラム統一と並び順
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)

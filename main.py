@@ -9,6 +9,7 @@ from collections import defaultdict
 from fastapi import Request
 import os
 import csv
+from fastapi import UploadFile, File
 
 
 app = FastAPI()
@@ -663,28 +664,24 @@ async def graph_person_period_result(
 
 # API連携
 @app.post("/api/receive_data")
-async def receive_data(request: Request):
-    data = await request.json()
-    records = data.get("records", [])
+async def receive_data(records: UploadFile = File(...)):
+    import pandas as pd
+    import io
+    import os
 
-    if not records:
-        return {"status": "error", "message": "No records found."}
+    # アップロードされたCSVを読み込む
+    contents = await records.read()
+    try:
+        df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # 必須フィールドの定義と順序統一
-    expected_fields = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
-    processed_records = []
+    # カラム統一と保存処理
+    expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
+    df = df[[col for col in df.columns if col in expected_cols]]
+    df = df.reindex(columns=expected_cols)
 
-    for rec in records:
-        row = {key: rec.get(key, "") for key in expected_fields}
-        processed_records.append(row)
-
-    # 保存パス
     save_path = os.path.join("data", "検査工数データ.csv")
+    df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    # 保存処理（utf-8-sigで日本語対応）
-    with open(save_path, mode="w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=expected_fields)
-        writer.writeheader()
-        writer.writerows(processed_records)
-
-    return {"status": "success", "message": f"{len(processed_records)} records saved to {save_path}"}
+    return {"status": "success", "message": f"{len(df)} records saved to {save_path}"}

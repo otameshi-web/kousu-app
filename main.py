@@ -675,6 +675,9 @@ async def receive_data(records: UploadFile = File(...)):
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
+    # 列名クリーンアップ
+    df.columns = [col.strip() for col in df.columns]
+
     # 受信ログ出力
     print(f"[LOG] {records.filename} に {len(df)} 件のデータを受信")
     if not df.empty:
@@ -682,18 +685,18 @@ async def receive_data(records: UploadFile = File(...)):
     else:
         print("[LOG] データフレームが空でした")
 
-    # "作業時間（m）" を "作業時間" (h) に変換
+    # 時間変換: 作業時間（m）→作業時間（h）
     if "作業時間（m）" in df.columns:
-        df["作業時間"] = df["作業時間（m）"] / 60
+        df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce") / 60
     else:
         df["作業時間"] = 0.0
 
-    # 必要なカラムだけに限定（順序調整も）
+    # カラム統一
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)
 
-    # 保存先パス
+    # 保存処理
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
     df.to_csv(save_path, index=False, encoding="utf-8-sig")

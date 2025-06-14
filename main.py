@@ -670,14 +670,21 @@ async def receive_data(request: Request):
     if not records:
         return {"status": "error", "message": "No records found."}
 
-    # 保存ファイル名：検査工数データ_日付.csv → 常に固定ファイル名にしてもOK
+    # 必須フィールドの定義と順序統一
+    expected_fields = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
+    processed_records = []
+
+    for rec in records:
+        row = {key: rec.get(key, "") for key in expected_fields}
+        processed_records.append(row)
+
+    # 保存パス
     save_path = os.path.join("data", "検査工数データ.csv")
-    fieldnames = records[0].keys()
 
-    # CSVとして保存
+    # 保存処理（utf-8-sigで日本語対応）
     with open(save_path, mode="w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=expected_fields)
         writer.writeheader()
-        writer.writerows(records)
+        writer.writerows(processed_records)
 
-    return {"status": "success", "message": f"{len(records)} records saved to {save_path}"}
+    return {"status": "success", "message": f"{len(processed_records)} records saved to {save_path}"}

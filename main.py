@@ -729,7 +729,7 @@ async def receive_data(records: UploadFile = File(...)):
             "Accept": "application/vnd.github+json"
         }
 
-        # SHAの取得（存在しない場合でも404を考慮）
+        # SHAの取得（存在しない場合でも対応）
         sha = None
         get_resp = requests.get(api_url, headers=headers)
         if get_resp.status_code == 200:
@@ -746,7 +746,7 @@ async def receive_data(records: UploadFile = File(...)):
             "branch": branch
         }
         if sha:
-            data["sha"] = sha
+            data["sha"] = sha  # ファイルが存在するときだけ追加
 
         put_resp = requests.put(api_url, headers=headers, json=data)
 

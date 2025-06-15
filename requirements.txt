@@ -5,3 +5,4 @@ aiofiles
 pandas
 jinja2
 python-multipart
+requests

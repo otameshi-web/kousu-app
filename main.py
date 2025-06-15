@@ -717,7 +717,7 @@ async def receive_data(records: UploadFile = File(...)):
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
         repo_name = "kousu-app"
-        branch = "main"  # ✅ 重要：master → main に変更
+        branch = "master"  # ✅ 重要：master → main に変更
         file_path = "data/検査工数データ.csv"
 
         api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"

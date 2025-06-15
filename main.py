@@ -2,25 +2,22 @@ from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-
 from typing import List
-from collections import defaultdict
-from pandas.tseries.offsets import MonthEnd  # ← 期間指定集計で必要
 import pandas as pd
 import os
 import io
-import csv
 import base64
 import requests
 from datetime import datetime
+from collections import defaultdict
 
+# === 基本設定 ===
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-
 CSV_PATH = os.path.join("data", "工数データ.csv")
 
-
+# === グラフUI系ルート ===
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -665,29 +662,18 @@ async def graph_person_period_result(
         "kensa_totals": kensa_totals
     })
 
-# API連携
-# インポート（上記を1度だけまとめて追加）
-
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-CSV_PATH = os.path.join("data", "工数データ.csv")
-
-
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
 # ==========================
 #       API連携
 # ==========================
+
+# 他のグラフ関連のルーティング（term/month/personなど）については
+# 以前の main.py（API連携前）で定義されていたものをそのまま保持してください
+
+# === API連携（CSV受信＆GitHub push） ===
 @app.post("/api/receive_data")
 async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
 
-    # CSV読み込み（文字コード自動判定）
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
@@ -695,7 +681,6 @@ async def receive_data(records: UploadFile = File(...)):
 
     df.columns = [col.strip() for col in df.columns]
 
-    # 作業時間（m）→ 時間(h) 変換
     if "作業時間（m）" in df.columns:
         df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce") / 60
     elif "作業時間" in df.columns:
@@ -707,31 +692,24 @@ async def receive_data(records: UploadFile = File(...)):
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)
 
-    # CSV保存（Render上）
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
     df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    # GitHubにPush処理
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
         repo_name = "kousu-app"
-        branch = "master"  # ✅ 重要：master → main に変更
+        branch = "master"  # masterブランチで更新したい
         file_path = "data/検査工数データ.csv"
 
         api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
-
         headers = {
             "Authorization": f"Bearer {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json"
         }
-
-        # ✅ ファイルの存在確認と sha 取得（存在しない場合は sha なし）
-        get_resp = requests.get(api_url, headers=headers)
-        sha = None
-        if get_resp.status_code == 200:
-            sha = get_resp.json().get("sha")
+        get_resp = requests.get(api_url, headers=headers, params={"ref": branch})
+        sha = get_resp.json().get("sha", None)
 
         with open(save_path, "rb") as f:
             encoded_content = base64.b64encode(f.read()).decode("utf-8")

@@ -5,10 +5,11 @@ from fastapi.templating import Jinja2Templates
 
 from typing import List
 from collections import defaultdict
+from pandas.tseries.offsets import MonthEnd  # ← 期間指定集計で必要
 import pandas as pd
-import csv
 import os
 import io
+import csv
 import base64
 import requests
 from datetime import datetime
@@ -717,11 +718,11 @@ async def receive_data(records: UploadFile = File(...)):
         get_resp = requests.get(api_url, headers=headers)
         sha = get_resp.json().get("sha", None)
 
-        # ファイル内容（base64）に変換
+        # ファイル内容をbase64にエンコード
         with open(save_path, "rb") as f:
             encoded_content = base64.b64encode(f.read()).decode("utf-8")
 
-        # GitHubにアップロード（create or update）
+        # コミットメッセージとデータ準備
         commit_message = f"自動更新: 検査工数データ ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
         data = {
             "message": commit_message,
@@ -731,6 +732,7 @@ async def receive_data(records: UploadFile = File(...)):
         if sha:
             data["sha"] = sha
 
+        # GitHubへPUTリクエスト（作成または更新）
         put_resp = requests.put(api_url, headers=headers, json=data)
 
         if put_resp.status_code in [200, 201]:

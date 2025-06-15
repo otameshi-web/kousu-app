@@ -715,27 +715,24 @@ async def receive_data(records: UploadFile = File(...)):
     # GitHubにPush処理
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-        if not GITHUB_TOKEN:
-            raise ValueError("GITHUB_TOKEN が環境変数に設定されていません。")
-
         repo_owner = "otameshi-web"
         repo_name = "kousu-app"
-        branch = "master"
+        branch = "main"  # ✅ 重要：master → main に変更
         file_path = "data/検査工数データ.csv"
 
         api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
+
         headers = {
             "Authorization": f"Bearer {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json"
         }
 
-        # SHAの取得（存在しない場合でも対応）
-        sha = None
+        # ✅ ファイルの存在確認と sha 取得（存在しない場合は sha なし）
         get_resp = requests.get(api_url, headers=headers)
+        sha = None
         if get_resp.status_code == 200:
             sha = get_resp.json().get("sha")
 
-        # base64にエンコード
         with open(save_path, "rb") as f:
             encoded_content = base64.b64encode(f.read()).decode("utf-8")
 
@@ -746,7 +743,7 @@ async def receive_data(records: UploadFile = File(...)):
             "branch": branch
         }
         if sha:
-            data["sha"] = sha  # ファイルが存在するときだけ追加
+            data["sha"] = sha
 
         put_resp = requests.put(api_url, headers=headers, json=data)
 

@@ -681,10 +681,12 @@ async def receive_data(records: UploadFile = File(...)):
 
     df.columns = [col.strip() for col in df.columns]
 
+# 作業時間の列を探して h 換算
     if "作業時間（m）" in df.columns:
         df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce") / 60
     elif "作業時間" in df.columns:
-        df["作業時間"] = pd.to_numeric(df["作業時間"], errors="coerce")
+        # "作業時間"がすでに分単位であれば、それを60で割って時間にする
+        df["作業時間"] = pd.to_numeric(df["作業時間"], errors="coerce") / 60
     else:
         df["作業時間"] = 0.0
 

@@ -9,13 +9,13 @@ import pandas as pd
 import csv
 import os
 import io
-import datetime
+import base64
+import requests
+from datetime import datetime
 
-# アプリ本体とテンプレート・静的ファイルの設定
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -667,35 +667,20 @@ async def graph_person_period_result(
     })
 
 # API連携
-
-# --------------- 通常のルート群（グラフ描画など）ここに含まれる ---------------
-# 例：
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-# --------------- FastAPI API連携エンドポイント（楽々販売 POST受け口） ---------------
 @app.post("/api/receive_data")
 async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
 
-    # CSV読み込み（文字コードを自動判定）
+    # 文字コード判定と読み込み
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # 列名クリーンアップ
+    # 列名整形
     df.columns = [col.strip() for col in df.columns]
 
-    # ログ出力
-    print(f"[LOG] {records.filename} に {len(df)} 件のデータを受信")
-    if not df.empty:
-        print("[LOG] 最初の1件: ", df.iloc[0].to_dict())
-    else:
-        print("[LOG] データフレームが空でした")
-
-    # --------- 作業時間列の処理ロジック（ここが今回の修正ポイント） ---------
+    # 作業時間（m）を h に変換
     if "作業時間（m）" in df.columns:
         df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce") / 60
     elif "作業時間" in df.columns:
@@ -703,18 +688,64 @@ async def receive_data(records: UploadFile = File(...)):
     else:
         df["作業時間"] = 0.0
 
-    # --------- カラム統一・並び替え ---------
+    # カラム統一
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)
 
-    # 保存処理
+    # 保存処理（Render上）
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
     df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    # 成功レスポンス
-    return JSONResponse(content={
-        "status": "success",
-        "message": f"{len(df)} records saved to {save_path}"
-    })
+    # GitHubにpush
+    try:
+        GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+        repo_owner = "otameshi-web"
+        repo_name = "kousu-app"
+        branch = "master"
+        file_path = "data/検査工数データ.csv"
+
+        # GitHub API URL
+        api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
+
+        # 対象ファイルの最新SHAを取得（既存ファイル上書き用）
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json"
+        }
+        get_resp = requests.get(api_url, headers=headers)
+        sha = get_resp.json().get("sha", None)
+
+        # ファイル内容（base64）に変換
+        with open(save_path, "rb") as f:
+            encoded_content = base64.b64encode(f.read()).decode("utf-8")
+
+        # GitHubにアップロード（create or update）
+        commit_message = f"自動更新: 検査工数データ ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+        data = {
+            "message": commit_message,
+            "content": encoded_content,
+            "branch": branch
+        }
+        if sha:
+            data["sha"] = sha
+
+        put_resp = requests.put(api_url, headers=headers, json=data)
+
+        if put_resp.status_code in [200, 201]:
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"{len(df)} records saved & pushed to GitHub"
+            })
+        else:
+            return JSONResponse(content={
+                "status": "partial_success",
+                "message": f"CSV saved locally but GitHub push failed: {put_resp.json()}"
+            }, status_code=500)
+
+    except Exception as e:
+        return JSONResponse(content={
+            "status": "error",
+            "message": f"保存成功したがGitHub連携に失敗: {str(e)}"
+        }, status_code=500)

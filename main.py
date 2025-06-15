@@ -18,10 +18,8 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 CSV_PATH = os.path.join("data", "工数データ.csv")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -668,6 +666,30 @@ async def graph_person_period_result(
     })
 
 # API連携
+# インポート（上記を1度だけまとめて追加）
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+CSV_PATH = os.path.join("data", "工数データ.csv")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+# ==========================
+#       API連携
+# ==========================
+# インポート（上記を1度だけまとめて追加）
+
+
+
+# ==========================
+#       API連携
+# ==========================
 @app.post("/api/receive_data")
 async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()

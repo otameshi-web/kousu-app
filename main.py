@@ -683,27 +683,19 @@ async def index(request: Request):
 # ==========================
 #       API連携
 # ==========================
-# インポート（上記を1度だけまとめて追加）
-
-
-
-# ==========================
-#       API連携
-# ==========================
 @app.post("/api/receive_data")
 async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
 
-    # 文字コード判定と読み込み
+    # CSV読み込み（文字コード自動判定）
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # 列名整形
     df.columns = [col.strip() for col in df.columns]
 
-    # 作業時間（m）を h に変換
+    # 作業時間（m）→ 時間(h) 変換
     if "作業時間（m）" in df.columns:
         df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce") / 60
     elif "作業時間" in df.columns:
@@ -711,40 +703,42 @@ async def receive_data(records: UploadFile = File(...)):
     else:
         df["作業時間"] = 0.0
 
-    # カラム統一
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)
 
-    # 保存処理（Render上）
+    # CSV保存（Render上）
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
     df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    # GitHubにpush
+    # GitHubにPush処理
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+        if not GITHUB_TOKEN:
+            raise ValueError("GITHUB_TOKEN が環境変数に設定されていません。")
+
         repo_owner = "otameshi-web"
         repo_name = "kousu-app"
         branch = "master"
         file_path = "data/検査工数データ.csv"
 
-        # GitHub API URL
         api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
-
-        # 対象ファイルの最新SHAを取得（既存ファイル上書き用）
         headers = {
             "Authorization": f"Bearer {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json"
         }
-        get_resp = requests.get(api_url, headers=headers)
-        sha = get_resp.json().get("sha", None)
 
-        # ファイル内容をbase64にエンコード
+        # SHAの取得（存在しない場合でも404を考慮）
+        sha = None
+        get_resp = requests.get(api_url, headers=headers)
+        if get_resp.status_code == 200:
+            sha = get_resp.json().get("sha")
+
+        # base64にエンコード
         with open(save_path, "rb") as f:
             encoded_content = base64.b64encode(f.read()).decode("utf-8")
 
-        # コミットメッセージとデータ準備
         commit_message = f"自動更新: 検査工数データ ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
         data = {
             "message": commit_message,
@@ -754,7 +748,6 @@ async def receive_data(records: UploadFile = File(...)):
         if sha:
             data["sha"] = sha
 
-        # GitHubへPUTリクエスト（作成または更新）
         put_resp = requests.put(api_url, headers=headers, json=data)
 
         if put_resp.status_code in [200, 201]:

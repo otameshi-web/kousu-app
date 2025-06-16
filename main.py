@@ -681,6 +681,10 @@ async def receive_data(records: UploadFile = File(...)):
 
     df.columns = [col.strip() for col in df.columns]
 
+    # デバッグ用のカラム確認ログ
+    print("🔍 CSVカラム:", [repr(col) for col in df.columns])
+    print("🔍 データプレビュー:\n", df.head())
+
 # 作業時間の列を探して h 換算
     if "作業時間（m）" in df.columns:
         df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce")

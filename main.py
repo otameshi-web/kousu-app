@@ -10,6 +10,7 @@ import base64
 import requests
 from datetime import datetime
 from collections import defaultdict
+import re
 
 # === 基本設定 ===
 app = FastAPI()
@@ -679,20 +680,22 @@ async def receive_data(records: UploadFile = File(...)):
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    df.columns = [col.strip() for col in df.columns]
+    # 列名の正規化：スペース削除＋全角・半角統一
+    df.columns = [re.sub(r"[（）]", lambda m: "(" if m.group(0) in "（" else ")", col.strip()) for col in df.columns]
+
 
     # デバッグ用のカラム確認ログ
     print("🔍 CSVカラム:", [repr(col) for col in df.columns])
     print("🔍 データプレビュー:\n", df.head())
 
 # 作業時間の列を探して h 換算
-    if "作業時間（m）" in df.columns:
-        df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce")
+    if "作業時間(m)" in df.columns:
+        df["作業時間"] = pd.to_numeric(df["作業時間(m)"], errors="coerce")
     elif "作業時間" in df.columns:
-        # "作業時間"がすでに分単位であれば、それを60で割って時間にする
         df["作業時間"] = pd.to_numeric(df["作業時間"], errors="coerce")
     else:
         df["作業時間"] = 0.0
+
 
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]

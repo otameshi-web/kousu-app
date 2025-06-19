@@ -670,37 +670,42 @@ async def graph_person_period_result(
 async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
 
+    # 文字コード判定と読み込み
     try:
         df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # 列名の正規化：スペース削除＋全角・半角統一
-    df.columns = [col.strip() for col in df.columns]
+    # 列名の正規化：スペース削除＋全角・半角カッコの統一＋余分な記号除去
+    df.columns = [col.strip().replace("（", "(").replace("）", ")").replace('"', "").replace("'", "") for col in df.columns]
 
-    # 作業時間の抽出（すべて分単位で格納されている前提）
-    if "作業時間（m）" in df.columns:
-        df["作業時間"] = pd.to_numeric(df["作業時間（m）"], errors="coerce")
-    elif "作業時間" in df.columns:
-        df["作業時間"] = pd.to_numeric(df["作業時間"], errors="coerce")
+    # デバッグ出力：列とデータの先頭数行を確認
+    print("🔍 CSVカラム:", df.columns.tolist())
+    print("🔍 データプレビュー:\n", df.head())
+
+    # 作業時間の抽出（いずれかの列があれば使用）
+    time_col = next((col for col in df.columns if "作業時間" in col), None)
+    if time_col:
+        df["作業時間"] = pd.to_numeric(df[time_col], errors="coerce")
     else:
         df["作業時間"] = 0.0
 
-    # 期待カラムのみ抽出し、順番を統一
+    # カラム統一・順序の固定
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     df = df[[col for col in df.columns if col in expected_cols]]
     df = df.reindex(columns=expected_cols)
 
-
+    # CSV保存（Render内）
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
     df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
+    # GitHubへのpush処理
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
         repo_name = "kousu-app"
-        branch = "master"  # masterブランチで更新したい
+        branch = "master"
         file_path = "data/検査工数データ.csv"
 
         api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
@@ -708,9 +713,12 @@ async def receive_data(records: UploadFile = File(...)):
             "Authorization": f"Bearer {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json"
         }
+
+        # 現在のSHA取得
         get_resp = requests.get(api_url, headers=headers, params={"ref": branch})
         sha = get_resp.json().get("sha", None)
 
+        # base64でエンコード
         with open(save_path, "rb") as f:
             encoded_content = base64.b64encode(f.read()).decode("utf-8")
 

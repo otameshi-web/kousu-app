@@ -746,3 +746,11 @@ async def receive_data(records: UploadFile = File(...)):
             "status": "error",
             "message": f"保存成功したがGitHub連携に失敗: {str(e)}"
         }, status_code=500)
+
+# ==========================
+#    renderをGitHubから起動
+# ==========================
+@app.get("/healthcheck")
+def healthcheck():
+    return JSONResponse(content={"status": "ok", "message": "healthcheck successful"})
+

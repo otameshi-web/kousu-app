@@ -1,0 +1,13 @@
+name: Wake Render App
+
+on:
+  schedule:
+    - cron: '55 14 * * *'  # JST 23:55 = UTC 14:55
+  workflow_dispatch:  # 手動実行も可
+
+jobs:
+  ping_render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render healthcheck URL
+        run: curl -s https://kousu-app.onrender.com/healthcheck

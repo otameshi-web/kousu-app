@@ -2,7 +2,7 @@ name: Wake Render App
 
 on:
   schedule:
-    - cron: '55 14 * * *'  # JST 23:55 = UTC 14:55
+    - cron: '50 15 * * *'  # JST 0:50 = UTC 15:50
   workflow_dispatch:  # 手動実行も可
 
 jobs:

@@ -788,13 +788,18 @@ async def receive_kousu_data(records: UploadFile = File(...)):
     # ✅ 保存先のCSVを読み込み（なければ空のDataFrameを用意）
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "工数データ.csv")
-    if os.path.exists(save_path):
+    # ファイルが存在し、サイズが0でないことを確認してから読み込む
+    if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
         try:
             existing_df = pd.read_csv(save_path, encoding="utf-8-sig")
         except UnicodeDecodeError:
-            existing_df = pd.read_csv(save_path, encoding="cp932")
+            try:
+                existing_df = pd.read_csv(save_path, encoding="cp932")
+            except Exception:
+                existing_df = pd.DataFrame(columns=expected_cols)
     else:
         existing_df = pd.DataFrame(columns=expected_cols)
+
 
     # ✅ 確実に必要列だけにし、indexを作業IDに設定
     existing_df.columns = [col.strip().replace("（", "(").replace("）", ")") for col in existing_df.columns]

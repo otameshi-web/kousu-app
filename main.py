@@ -679,10 +679,6 @@ async def receive_data(records: UploadFile = File(...)):
     # 列名の正規化
     new_df.columns = [col.strip().replace('"', "").replace("'", "") for col in new_df.columns]
 
-    # デバッグ出力
-    print("🔍 CSVカラム:", new_df.columns.tolist())
-    print("🔍 データプレビュー:\n", new_df.head())
-
     # 作業時間の列処理
     time_col = next((col for col in new_df.columns if "作業時間" in col), None)
     if time_col:
@@ -690,27 +686,39 @@ async def receive_data(records: UploadFile = File(...)):
     else:
         new_df["作業時間"] = 0.0
 
+    # 想定カラムに整形
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
     new_df = new_df[[col for col in new_df.columns if col in expected_cols]]
     new_df = new_df.reindex(columns=expected_cols)
 
-    # 既存データの読み込み
+    # 保存先の準備
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
-    if os.path.exists(save_path):
+
+    # 既存データ読み込み（空や壊れたファイルは無視）
+    if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
         try:
             existing_df = pd.read_csv(save_path, encoding="utf-8-sig")
         except UnicodeDecodeError:
-            existing_df = pd.read_csv(save_path, encoding="cp932")
+            try:
+                existing_df = pd.read_csv(save_path, encoding="cp932")
+            except Exception:
+                existing_df = pd.DataFrame(columns=expected_cols)
     else:
         existing_df = pd.DataFrame(columns=expected_cols)
 
-    # 差分のみ追加（作業ID + 作業項目（箇所）で重複排除）
-    combined_df = pd.concat([existing_df, new_df], ignore_index=True)
-    combined_df = combined_df.drop_duplicates(subset=["作業ID", "作業項目（箇所）"])
+    # インデックスキーで上書き更新：作業ID + 作業項目（箇所）
+    key_cols = ["作業ID", "作業項目（箇所）"]
+    existing_df.set_index(key_cols, inplace=True)
+    new_df.set_index(key_cols, inplace=True)
 
-    # CSV保存
-    combined_df.to_csv(save_path, index=False, encoding="utf-8-sig")
+    # 既存にないものは追加、差異があるものは上書き
+    updated_df = existing_df.combine_first(new_df)
+    updated_df.update(new_df)
+
+    # 保存
+    updated_df.reset_index(inplace=True)
+    updated_df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
     # GitHubへPush
     try:
@@ -745,18 +753,18 @@ async def receive_data(records: UploadFile = File(...)):
         if put_resp.status_code in [200, 201]:
             return JSONResponse(content={
                 "status": "success",
-                "message": f"{len(new_df)} 件の新規レコードを追加し、GitHub に反映しました"
+                "message": f"{len(new_df)} 件のレコードを保存・GitHubに反映しました"
             })
         else:
             return JSONResponse(content={
                 "status": "partial_success",
-                "message": f"ローカル保存成功、GitHub反映失敗: {put_resp.json()}"
+                "message": f"保存成功・GitHub反映失敗: {put_resp.json()}"
             }, status_code=500)
 
     except Exception as e:
         return JSONResponse(content={
             "status": "error",
-            "message": f"保存成功したがGitHub連携に失敗: {str(e)}"
+            "message": f"保存成功・GitHub連携失敗: {str(e)}"
         }, status_code=500)
 
 @app.post("/api/receive_kousu_data")

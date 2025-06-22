@@ -763,24 +763,29 @@ async def receive_data(records: UploadFile = File(...)):
 async def receive_kousu_data(records: UploadFile = File(...)):
     contents = await records.read()
 
+    # CSV読み込み
     try:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    new_df.columns = [col.strip().replace('"', "").replace("'", "") for col in new_df.columns]
+    # ✅ カラム名の前後スペース削除＋全角カッコ→半角へ正規化
+    new_df.columns = [col.strip().replace("（", "(").replace("）", ")").replace('"', "").replace("'", "") for col in new_df.columns]
+    print("📋 修正後カラム:", new_df.columns.tolist())
 
-    # 作業時間の列を処理
+    # ✅ 作業時間列の処理（「作業時間」や「作業時間(m)」に対応）
     time_col = next((col for col in new_df.columns if "作業時間" in col), None)
     if time_col:
         new_df["作業時間"] = pd.to_numeric(new_df[time_col], errors="coerce")
     else:
         new_df["作業時間"] = 0.0
 
+    # ✅ 期待カラムを抽出・整形
     expected_cols = ["作業ID", "作業日", "作業実施者", "作業種別", "作業時間"]
     new_df = new_df[[col for col in new_df.columns if col in expected_cols]]
     new_df = new_df.reindex(columns=expected_cols)
 
+    # ✅ 保存先のCSVを読み込み（なければ空のDataFrameを用意）
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "工数データ.csv")
     if os.path.exists(save_path):
@@ -791,19 +796,29 @@ async def receive_kousu_data(records: UploadFile = File(...)):
     else:
         existing_df = pd.DataFrame(columns=expected_cols)
 
-    # 作業ID をキーにし、変更があるものは更新、なければ維持、新しいIDは追加
-    existing_df.set_index("作業ID", inplace=True)
-    new_df.set_index("作業ID", inplace=True)
+    # ✅ 確実に必要列だけにし、indexを作業IDに設定
+    existing_df.columns = [col.strip().replace("（", "(").replace("）", ")") for col in existing_df.columns]
+    existing_df = existing_df[[col for col in existing_df.columns if col in expected_cols]]
+    existing_df = existing_df.reindex(columns=expected_cols)
 
-    # 上書き更新（index重複があれば置き換える）
+    try:
+        existing_df.set_index("作業ID", inplace=True)
+        new_df.set_index("作業ID", inplace=True)
+    except KeyError:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "作業ID列が見つかりません。CSV列名をご確認ください。"}
+        )
+
+    # ✅ 上書き＋追加処理
     updated_df = existing_df.combine_first(new_df)
-    updated_df.update(new_df)  # 内容に差異があるものを上書き
+    updated_df.update(new_df)
 
-    # 保存
+    # ✅ 保存・GitHubへPush
     updated_df.reset_index(inplace=True)
     updated_df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    # GitHubへPush処理
+    # ✅ GitHub連携
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
@@ -837,7 +852,7 @@ async def receive_kousu_data(records: UploadFile = File(...)):
         if put_resp.status_code in [200, 201]:
             return JSONResponse(content={
                 "status": "success",
-                "message": f"{len(new_df)} 件の新規・更新レコードを保存・GitHubに反映しました"
+                "message": f"{len(new_df)} 件の新規・更新レコードを保存し、GitHub に反映しました"
             })
         else:
             return JSONResponse(content={

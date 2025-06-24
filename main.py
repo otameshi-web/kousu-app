@@ -670,49 +670,67 @@ async def graph_person_period_result(
 async def receive_data(records: UploadFile = File(...)):
     contents = await records.read()
 
-    # アップロードCSVを読み込み
+    # CSV読み込み
     try:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # 列名の正規化
-    new_df.columns = [col.strip().replace('"', "").replace("'", "") for col in new_df.columns]
+    # カラム名正規化
+    new_df.columns = [col.strip().replace("（", "(").replace("）", ")").replace('"', "").replace("'", "") for col in new_df.columns]
+    print("📋 修正後カラム:", new_df.columns.tolist())
 
-    # デバッグ出力
-    print("🔍 CSVカラム:", new_df.columns.tolist())
-    print("🔍 データプレビュー:\n", new_df.head())
-
-    # 作業時間の列処理
+    # 作業時間列処理
     time_col = next((col for col in new_df.columns if "作業時間" in col), None)
     if time_col:
         new_df["作業時間"] = pd.to_numeric(new_df[time_col], errors="coerce")
     else:
         new_df["作業時間"] = 0.0
 
-    expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
+    expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目(箇所)", "作業時間"]
     new_df = new_df[[col for col in new_df.columns if col in expected_cols]]
     new_df = new_df.reindex(columns=expected_cols)
 
-    # 既存データの読み込み
+    # 保存先の読み込み
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
-    if os.path.exists(save_path):
+
+    if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
         try:
             existing_df = pd.read_csv(save_path, encoding="utf-8-sig")
         except UnicodeDecodeError:
-            existing_df = pd.read_csv(save_path, encoding="cp932")
+            try:
+                existing_df = pd.read_csv(save_path, encoding="cp932")
+            except Exception:
+                existing_df = pd.DataFrame(columns=expected_cols)
     else:
         existing_df = pd.DataFrame(columns=expected_cols)
 
-    # 差分のみ追加（作業ID + 作業項目（箇所）で重複排除）
-    combined_df = pd.concat([existing_df, new_df], ignore_index=True)
-    combined_df = combined_df.drop_duplicates(subset=["作業ID", "作業項目（箇所）"])
+    # カラム名再正規化（念のため）
+    existing_df.columns = [col.strip().replace("（", "(").replace("）", ")") for col in existing_df.columns]
+    existing_df = existing_df[[col for col in existing_df.columns if col in expected_cols]]
+    existing_df = existing_df.reindex(columns=expected_cols)
 
-    # CSV保存
-    combined_df.to_csv(save_path, index=False, encoding="utf-8-sig")
+    # インデックス設定とエラーチェック
+    key_cols = ["作業ID", "作業項目(箇所)"]
+    try:
+        existing_df.set_index(key_cols, inplace=True)
+        new_df.set_index(key_cols, inplace=True)
+    except KeyError:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "作業IDまたは作業項目(箇所)列が見つかりません。CSVの列名をご確認ください。"}
+        )
 
-    # GitHubへPush
+    # 更新処理
+    updated_df = existing_df.combine_first(new_df)
+    updated_df.update(new_df)
+
+    # 保存処理
+    updated_df.reset_index(inplace=True)
+    updated_df.to_csv(save_path, index=False, encoding="utf-8-sig")
+
+    # GitHub反映
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
@@ -725,6 +743,7 @@ async def receive_data(records: UploadFile = File(...)):
             "Authorization": f"Bearer {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json"
         }
+
         get_resp = requests.get(api_url, headers=headers, params={"ref": branch})
         sha = get_resp.json().get("sha", None)
 
@@ -745,13 +764,19 @@ async def receive_data(records: UploadFile = File(...)):
         if put_resp.status_code in [200, 201]:
             return JSONResponse(content={
                 "status": "success",
-                "message": f"{len(new_df)} 件の新規レコードを追加し、GitHub に反映しました"
+                "message": f"{len(new_df)} 件の新規・更新レコードを保存・GitHubに反映しました"
             })
         else:
             return JSONResponse(content={
                 "status": "partial_success",
-                "message": f"ローカル保存成功、GitHub反映失敗: {put_resp.json()}"
+                "message": f"保存成功・GitHub反映失敗: {put_resp.json()}"
             }, status_code=500)
+
+    except Exception as e:
+        return JSONResponse(content={
+            "status": "error",
+            "message": f"保存成功・GitHub連携失敗: {str(e)}"
+        }, status_code=500)
 
     except Exception as e:
         return JSONResponse(content={

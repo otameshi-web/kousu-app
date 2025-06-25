@@ -132,7 +132,7 @@ async def graph_term_result(
             "作業日": "日付",
             "作業ID": "作業ID",
             "作業実施者": "作業者",
-            "作業項目（箇所）": "項目",
+            "作業項目(箇所)": "項目",
             "作業時間": "時間"
         })
         kensa_df["日付"] = pd.to_datetime(kensa_df["日付"], errors="coerce")
@@ -294,7 +294,7 @@ async def graph_month_result(
             "作業日": "日付",
             "作業ID": "作業ID",
             "作業実施者": "作業者",
-            "作業項目（箇所）": "項目",
+            "作業項目(箇所)": "項目",
             "作業時間": "時間"
         })
         kensa_df["日付"] = pd.to_datetime(kensa_df["日付"], errors="coerce")
@@ -593,7 +593,7 @@ async def graph_person_period_result(
             "作業日": "日付",
             "作業ID": "作業ID",
             "作業実施者": "作業者",
-            "作業項目（箇所）": "項目",
+            "作業項目(箇所)": "項目",
             "作業時間": "時間"
         })
         kensa_df["日付"] = pd.to_datetime(kensa_df["日付"], errors="coerce")

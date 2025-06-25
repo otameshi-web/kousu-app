@@ -778,12 +778,6 @@ async def receive_data(records: UploadFile = File(...)):
             "message": f"保存成功・GitHub連携失敗: {str(e)}"
         }, status_code=500)
 
-    except Exception as e:
-        return JSONResponse(content={
-            "status": "error",
-            "message": f"保存成功したがGitHub連携に失敗: {str(e)}"
-        }, status_code=500)
-
 @app.post("/api/receive_kousu_data")
 async def receive_kousu_data(records: UploadFile = File(...)):
     contents = await records.read()

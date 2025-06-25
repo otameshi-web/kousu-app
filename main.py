@@ -676,22 +676,19 @@ async def receive_data(records: UploadFile = File(...)):
     except UnicodeDecodeError:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # カラム名の正規化
-    new_df.columns = [col.strip().replace('"', "").replace("'", "") for col in new_df.columns]
+    # カラム名正規化（全角カッコ→半角）
+    new_df.columns = [col.strip().replace("（", "(").replace("）", ")").replace('"', "").replace("'", "") for col in new_df.columns]
 
-    print("🔍 CSVカラム:", new_df.columns.tolist())
-    print("🔍 データプレビュー:\n", new_df.head())
+    print("📋 修正後カラム:", new_df.columns.tolist())
 
     # 作業時間処理
     time_col = next((col for col in new_df.columns if "作業時間" in col), None)
     new_df["作業時間"] = pd.to_numeric(new_df[time_col], errors="coerce") if time_col else 0.0
 
-    # カラム揃え
-    expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目（箇所）", "作業時間"]
+    expected_cols = ["作業ID", "作業日", "作業実施者", "作業項目(箇所)", "作業時間"]
     new_df = new_df[[col for col in new_df.columns if col in expected_cols]]
     new_df = new_df.reindex(columns=expected_cols)
 
-    # 既存データ読込
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "検査工数データ.csv")
 
@@ -703,31 +700,29 @@ async def receive_data(records: UploadFile = File(...)):
     else:
         existing_df = pd.DataFrame(columns=expected_cols)
 
-    # カラム整形
-    existing_df.columns = [col.strip() for col in existing_df.columns]
+    existing_df.columns = [col.strip().replace("（", "(").replace("）", ")") for col in existing_df.columns]
     existing_df = existing_df[[col for col in existing_df.columns if col in expected_cols]]
     existing_df = existing_df.reindex(columns=expected_cols)
 
-    # 🔁 差分更新処理
-    key_cols = ["作業ID", "作業項目（箇所）"]
-    try:
-        existing_df.set_index(key_cols, inplace=True)
-        new_df.set_index(key_cols, inplace=True)
-    except KeyError:
-        return JSONResponse(status_code=400, content={
-            "status": "error",
-            "message": "作業IDまたは作業項目（箇所）が見つかりません。CSV列名をご確認ください。"
-        })
+    # 重複排除した上で MultiIndex を作成
+    key_cols = ["作業ID", "作業項目(箇所)"]
+    new_df = new_df.drop_duplicates(subset=key_cols, keep="last")
+    existing_df = existing_df.drop_duplicates(subset=key_cols, keep="last")
 
-    # 追加＋変更反映（行差分がある場合も反映）
+    try:
+        new_df.set_index(key_cols, inplace=True)
+        existing_df.set_index(key_cols, inplace=True)
+    except KeyError:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "必要なキー列が存在しません。"})
+
+    # 更新処理：新規追加 + 内容更新
     updated_df = existing_df.combine_first(new_df)
     updated_df.update(new_df)
 
-    # 保存
+    # 保存とGitHub反映
     updated_df.reset_index(inplace=True)
     updated_df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    # GitHubへPush
     try:
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
@@ -760,7 +755,7 @@ async def receive_data(records: UploadFile = File(...)):
         if put_resp.status_code in [200, 201]:
             return JSONResponse(content={
                 "status": "success",
-                "message": f"{len(new_df)} 件の新規・更新レコードを保存し、GitHub に反映しました"
+                "message": f"{len(new_df)} 件のレコードを更新・追加して保存しました"
             })
         else:
             return JSONResponse(content={

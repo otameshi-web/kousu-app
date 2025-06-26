@@ -1,101 +1,217 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>全体【月別】グラフ</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <meta charset="UTF-8">
+  <title>全体【月別】グラフ</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 </head>
 <body>
-    <h1>{{ year }}年{{ month }}月の作業集計</h1>
+  <h1>{{ year }}年{{ month }}月の作業集計</h1>
 
-    <canvas id="timeChart"></canvas>
-    <canvas id="countChart" style="margin-top: 50px;"></canvas>
+  <canvas id="timeChart"></canvas>
+  <canvas id="countChart" style="margin-top: 50px;"></canvas>
 
-    <script>
-        const labels = {{ labels|tojson }};
-        const timeDatasets = {{ time_datasets|tojson }};
-        const countDatasets = {{ count_datasets|tojson }};
+  <script>
+    const labels = {{ labels | tojson }};
+    const timeDatasets = {{ time_datasets | tojson }};
+    const countDatasets = {{ count_datasets | tojson }};
+    const kensaTotals = {{ kensa_totals | tojson }};
+    const workTypes = {{ work_types | tojson }};
 
-        const timeConfig = {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: timeDatasets
+    const displayInnerData = timeDatasets.filter(ds => ds.stack === "main").length > 1;
+
+    // ▼ 時間グラフ
+    new Chart(document.getElementById('timeChart'), {
+      type: 'bar',
+      data: { labels, datasets: timeDatasets },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' },
+          datalabels: {
+            display: displayInnerData,
+            color: 'black',
+            anchor: 'center',
+            align: 'center',
+            font: { weight: 'bold', size: 10 },
+            formatter: (value) => {
+              if (value === 0) return '';
+              const h = (value / 60).toFixed(1);
+              const k = (value / 420).toFixed(1);
+              return `${h}h\n(${k}工数)`;
+            }
+          }
+        },
+        scales: {
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            grace: '10%',
+            ticks: {
+              callback: (v) => (v / 60).toFixed(0)
             },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { position: 'top' },
-                    datalabels: {
-                        color: 'black',
-                        anchor: 'end',
-                        align: 'end',
-                        formatter: (value) => {
-                            if (value === 0) return '';
-                            const hours = (value / 60).toFixed(1);
-                            const kosu = (value / 420).toFixed(1);
-                            return `${hours}h\n(${kosu}工数)`;
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        stacked: true,
-                        beginAtZero: true,
-                        ticks: {
-                            // 分→時間換算
-                            callback: (v) => (v / 60).toFixed(0)
-                        },
-                        title: {
-                            display: true,
-                            text: '時間 (h)'
-                        }
-                    },
-                    x: {
-                        stacked: true
-                    }
+            title: {
+              display: true,
+              text: '時間 (h)'
+            }
+          },
+          x: { stacked: false }
+        }
+      },
+      plugins: [ChartDataLabels, {
+        id: 'totalTimeLabel',
+        afterDatasetsDraw(chart) {
+          const ctx = chart.ctx;
+          const xScale = chart.scales.x;
+          const yScale = chart.scales.y;
+          labels.forEach((label, i) => {
+            let mainTotal = 0;
+            chart.data.datasets.forEach(ds => {
+              if (ds.stack === "main") mainTotal += ds.data[i] || 0;
+            });
+
+            let mainX = null;
+            for (const ds of chart.data.datasets) {
+              if (ds.stack === "main" && ds.data[i]) {
+                const meta = chart.getDatasetMeta(chart.data.datasets.indexOf(ds));
+                const bar = meta.data[i];
+                if (bar) {
+                  mainX = bar.x;
+                  break;
                 }
-            },
-            plugins: [ChartDataLabels]
-        };
+              }
+            }
 
-        const countConfig = {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: countDatasets
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { position: 'top' },
-                    datalabels: {
-                        color: 'black',
-                        anchor: 'end',
-                        align: 'end',
-                        formatter: (value) => value === 0 ? '' : `${value}件`
+            const drawX = mainX ?? xScale.getPixelForValue(label);
+            const topY = yScale.getPixelForValue(mainTotal);
+            const h = (mainTotal / 60).toFixed(1);
+            const k = (mainTotal / 420).toFixed(1);
+            const lines = [`${h}h`, `(${k}工数)`];
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            lines.forEach((line, idx) => {
+              ctx.fillText(line, drawX, topY - 5 - (12 * (1 - idx)));
+            });
+
+            if (workTypes.length === 1 && workTypes[0] === "点検及び検査") {
+              const kensaTotal = kensaTotals[label]?.時間合計 || 0;
+              if (kensaTotal > 0) {
+                const kTopY = yScale.getPixelForValue(kensaTotal);
+                const kh = (kensaTotal / 60).toFixed(1);
+                const kk = (kensaTotal / 420).toFixed(1);
+
+                let kensaX = null;
+                for (const ds of chart.data.datasets) {
+                  if (ds.stack === "検査" && ds.data[i]) {
+                    const meta = chart.getDatasetMeta(chart.data.datasets.indexOf(ds));
+                    const bar = meta.data[i];
+                    if (bar) {
+                      kensaX = bar.x;
+                      break;
                     }
-                },
-                scales: {
-                    y: {
-                        stacked: true,
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: '件数'
-                        }
-                    },
-                    x: {
-                        stacked: true
-                    }
+                  }
                 }
-            },
-            plugins: [ChartDataLabels]
-        };
 
-        new Chart(document.getElementById('timeChart'), timeConfig);
-        new Chart(document.getElementById('countChart'), countConfig);
-    </script>
+                const kDrawX = kensaX ?? xScale.getPixelForValue(label);
+                ctx.fillStyle = '#444';
+                ctx.fillText(`${kh}h`, kDrawX, kTopY - 17);
+                ctx.fillText(`(${kk}工数)`, kDrawX, kTopY - 5);
+              }
+            }
+          });
+        }
+      }]
+    });
+
+    // ▼ 件数グラフ
+    new Chart(document.getElementById('countChart'), {
+      type: 'bar',
+      data: { labels, datasets: countDatasets },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' },
+          datalabels: {
+            display: displayInnerData,
+            color: 'black',
+            anchor: 'center',
+            align: 'center',
+            font: { weight: 'bold', size: 10 },
+            formatter: (v) => v === 0 ? '' : `${v}件`
+          }
+        },
+        scales: {
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: '件数'
+            }
+          },
+          x: { stacked: false }
+        }
+      },
+      plugins: [ChartDataLabels, {
+        id: 'totalCountLabel',
+        afterDatasetsDraw(chart) {
+          const ctx = chart.ctx;
+          const xScale = chart.scales.x;
+          const yScale = chart.scales.y;
+          labels.forEach((label, i) => {
+            let mainTotal = 0;
+            chart.data.datasets.forEach(ds => {
+              if (ds.stack === "main") mainTotal += ds.data[i] || 0;
+            });
+
+            let mainX = null;
+            for (const ds of chart.data.datasets) {
+              if (ds.stack === "main" && ds.data[i]) {
+                const meta = chart.getDatasetMeta(chart.data.datasets.indexOf(ds));
+                const bar = meta.data[i];
+                if (bar) {
+                  mainX = bar.x;
+                  break;
+                }
+              }
+            }
+
+            const drawX = mainX ?? xScale.getPixelForValue(label);
+            const topY = yScale.getPixelForValue(mainTotal);
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`${mainTotal}件`, drawX, topY - 5);
+
+            if (workTypes.length === 1 && workTypes[0] === "点検及び検査") {
+              const kensaCount = kensaTotals[label]?.件数合計 || 0;
+              if (kensaCount > 0) {
+                const kTopY = yScale.getPixelForValue(kensaCount);
+                let kensaX = null;
+                for (const ds of chart.data.datasets) {
+                  if (ds.stack === "検査" && ds.data[i]) {
+                    const meta = chart.getDatasetMeta(chart.data.datasets.indexOf(ds));
+                    const bar = meta.data[i];
+                    if (bar) {
+                      kensaX = bar.x;
+                      break;
+                    }
+                  }
+                }
+
+                const kDrawX = kensaX ?? xScale.getPixelForValue(label);
+                ctx.fillStyle = '#444';
+                ctx.fillText(`${kensaCount}件`, kDrawX, kTopY - 5);
+              }
+            }
+          });
+        }
+      }]
+    });
+  </script>
 </body>
 </html>

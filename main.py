@@ -25,7 +25,21 @@ async def index(request: Request):
 
 @app.get("/graph/menu", response_class=HTMLResponse)
 async def graph_menu(request: Request):
-    return templates.TemplateResponse("graph_menu.html", {"request": request})
+    today = datetime.today()
+    year = today.year
+    month = today.month - 1
+    if month == 0:
+        month = 12
+        year -= 1
+    default_params = {
+        "year": year,
+        "month": month,
+        "work_types": ["点検及び検査"]
+    }
+    return templates.TemplateResponse("graph_menu.html", {
+        "request": request,
+        "default_params": default_params
+    })
 
 @app.get("/graph/all", response_class=HTMLResponse)
 async def graph_all_menu(request: Request):

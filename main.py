@@ -895,54 +895,53 @@ async def receive_kousu_data(records: UploadFile = File(...)):
             "message": f"保存成功・GitHub連携失敗: {str(e)}"
         }, status_code=500)
 
-@app.post("/api/receive_general_construction")
-async def receive_general_construction(records: UploadFile = File(...)):
+@app.post("/api/receive_general")
+async def receive_general_sales_data(records: UploadFile = File(...)):
     contents = await records.read()
 
+    # CSV読み込み
     try:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # カラム整形
-    new_df.columns = [col.strip().replace("（", "(").replace("）", ")") for col in new_df.columns]
+    # カラム名の正規化
+    new_df.columns = [col.strip().replace("（", "(").replace("）", ")").replace('"', "").replace("'", "") for col in new_df.columns]
 
-    # 必須カラム
-    expected_cols = ["工事見積No.", "明細キー"]
-    if not all(col in new_df.columns for col in expected_cols):
+    # 主キー確認
+    if not {"工事見積No.", "明細キー"}.issubset(set(new_df.columns)):
         return JSONResponse(
             status_code=400,
-            content={"status": "error", "message": "必要なカラムが不足しています。（工事見積No.・明細キー）"}
+            content={"status": "error", "message": "主キー列が不足しています（工事見積No.＋明細キー）"}
         )
 
+    # 保存先
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "一般工事売上データ.csv")
 
+    # 既存データ読み込み（なければ空）
     if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
         try:
             existing_df = pd.read_csv(save_path, encoding="utf-8-sig")
         except UnicodeDecodeError:
             existing_df = pd.read_csv(save_path, encoding="cp932")
     else:
-        existing_df = pd.DataFrame(columns=new_df.columns)
+        existing_df = pd.DataFrame()
 
-    # 前処理：主キーでindex化
-    new_df.set_index(["工事見積No.", "明細キー"], inplace=True)
-    existing_df.set_index(["工事見積No.", "明細キー"], inplace=True)
+    # インデックス設定（主キー複合）
+    existing_df.set_index(["工事見積No.", "明細キー"], inplace=True, drop=False)
+    new_df.set_index(["工事見積No.", "明細キー"], inplace=True, drop=False)
 
-    # 上書き＋追加
+    # 追加＋更新のみ
     updated_df = existing_df.combine_first(new_df)
     updated_df.update(new_df)
 
-    # 削除処理：新DFに存在しない主キーを除外
-    updated_df = updated_df.loc[new_df.index]
-
-    # 保存
-    updated_df.reset_index(inplace=True)
+    # 保存・GitHub反映
+    updated_df.reset_index(drop=True, inplace=True)
     updated_df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
-    # GitHubに反映
     try:
+        # GitHub連携
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
         repo_name = "kousu-app"
@@ -975,7 +974,7 @@ async def receive_general_construction(records: UploadFile = File(...)):
         if put_resp.status_code in [200, 201]:
             return JSONResponse(content={
                 "status": "success",
-                "message": f"{len(new_df)} 件のレコードを保存し、GitHub に反映しました"
+                "message": f"{len(new_df)} 件を更新・追加し、GitHub に反映しました"
             })
         else:
             return JSONResponse(content={

@@ -909,7 +909,7 @@ async def receive_general_construction(records: UploadFile = File(...)):
     new_df.columns = [col.strip().replace("（", "(").replace("）", ")").replace('"', "").replace("'", "") for col in new_df.columns]
 
     # 保存対象カラムと順番
-    expected_cols = ["工事見積No.", "明細キー", "売上日", "売上金額", "入金予定日"]
+    expected_cols = ["工事見積No.", "明細キー", "作成日", "決定日", "宛名", "建物名", "担当者名", "詳細", "小計", "消費税", "合計", "原価小計", "原価率", "利益率", "管理番号"]
     new_df = new_df[[col for col in new_df.columns if col in expected_cols]]
     new_df = new_df.reindex(columns=expected_cols)
 

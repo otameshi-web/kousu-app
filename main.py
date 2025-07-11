@@ -895,6 +895,100 @@ async def receive_kousu_data(records: UploadFile = File(...)):
             "message": f"保存成功・GitHub連携失敗: {str(e)}"
         }, status_code=500)
 
+@app.post("/api/receive_general_construction")
+async def receive_general_construction(records: UploadFile = File(...)):
+    contents = await records.read()
+
+    try:
+        new_df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        new_df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
+
+    # カラム整形
+    new_df.columns = [col.strip().replace("（", "(").replace("）", ")") for col in new_df.columns]
+
+    # 必須カラム
+    expected_cols = ["工事見積No.", "明細キー"]
+    if not all(col in new_df.columns for col in expected_cols):
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "必要なカラムが不足しています。（工事見積No.・明細キー）"}
+        )
+
+    os.makedirs("data", exist_ok=True)
+    save_path = os.path.join("data", "一般工事売上データ.csv")
+
+    if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+        try:
+            existing_df = pd.read_csv(save_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            existing_df = pd.read_csv(save_path, encoding="cp932")
+    else:
+        existing_df = pd.DataFrame(columns=new_df.columns)
+
+    # 前処理：主キーでindex化
+    new_df.set_index(["工事見積No.", "明細キー"], inplace=True)
+    existing_df.set_index(["工事見積No.", "明細キー"], inplace=True)
+
+    # 上書き＋追加
+    updated_df = existing_df.combine_first(new_df)
+    updated_df.update(new_df)
+
+    # 削除処理：新DFに存在しない主キーを除外
+    updated_df = updated_df.loc[new_df.index]
+
+    # 保存
+    updated_df.reset_index(inplace=True)
+    updated_df.to_csv(save_path, index=False, encoding="utf-8-sig")
+
+    # GitHubに反映
+    try:
+        GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+        repo_owner = "otameshi-web"
+        repo_name = "kousu-app"
+        branch = "master"
+        file_path = "data/一般工事売上データ.csv"
+        api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
+
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json"
+        }
+
+        get_resp = requests.get(api_url, headers=headers, params={"ref": branch})
+        sha = get_resp.json().get("sha", None)
+
+        with open(save_path, "rb") as f:
+            encoded_content = base64.b64encode(f.read()).decode("utf-8")
+
+        commit_message = f"自動更新: 一般工事売上データ ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+        data = {
+            "message": commit_message,
+            "content": encoded_content,
+            "branch": branch
+        }
+        if sha:
+            data["sha"] = sha
+
+        put_resp = requests.put(api_url, headers=headers, json=data)
+
+        if put_resp.status_code in [200, 201]:
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"{len(new_df)} 件のレコードを保存し、GitHub に反映しました"
+            })
+        else:
+            return JSONResponse(content={
+                "status": "partial_success",
+                "message": f"保存成功・GitHub反映失敗: {put_resp.json()}"
+            }, status_code=500)
+
+    except Exception as e:
+        return JSONResponse(content={
+            "status": "error",
+            "message": f"保存成功・GitHub連携失敗: {str(e)}"
+        }, status_code=500)
+
 
 # ==========================
 #    renderをGitHubから起動

@@ -895,53 +895,54 @@ async def receive_kousu_data(records: UploadFile = File(...)):
             "message": f"保存成功・GitHub連携失敗: {str(e)}"
         }, status_code=500)
 
-@app.post("/api/receive_general")
-async def receive_general_sales_data(records: UploadFile = File(...)):
+@app.post("/api/receive_general_construction")
+async def receive_general_construction(records: UploadFile = File(...)):
     contents = await records.read()
 
-    # CSV読み込み
+    # CSVの読み込み
     try:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
     except UnicodeDecodeError:
         new_df = pd.read_csv(io.BytesIO(contents), encoding="cp932")
 
-    # カラム名の正規化
+    # カラム正規化
     new_df.columns = [col.strip().replace("（", "(").replace("）", ")").replace('"', "").replace("'", "") for col in new_df.columns]
 
-    # 主キー確認
-    if not {"工事見積No.", "明細キー"}.issubset(set(new_df.columns)):
-        return JSONResponse(
-            status_code=400,
-            content={"status": "error", "message": "主キー列が不足しています（工事見積No.＋明細キー）"}
-        )
+    # 保存対象カラムと順番
+    expected_cols = ["工事見積No.", "明細キー", "売上日", "売上金額", "入金予定日"]
+    new_df = new_df[[col for col in new_df.columns if col in expected_cols]]
+    new_df = new_df.reindex(columns=expected_cols)
 
-    # 保存先
+    # 保存先のCSV読み込み
     os.makedirs("data", exist_ok=True)
     save_path = os.path.join("data", "一般工事売上データ.csv")
 
-    # 既存データ読み込み（なければ空）
     if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
         try:
             existing_df = pd.read_csv(save_path, encoding="utf-8-sig")
-        except UnicodeDecodeError:
-            existing_df = pd.read_csv(save_path, encoding="cp932")
+        except:
+            existing_df = pd.DataFrame(columns=expected_cols)
     else:
-        existing_df = pd.DataFrame()
+        existing_df = pd.DataFrame(columns=expected_cols)
 
-    # インデックス設定（主キー複合）
-    existing_df.set_index(["工事見積No.", "明細キー"], inplace=True, drop=False)
-    new_df.set_index(["工事見積No.", "明細キー"], inplace=True, drop=False)
+    existing_df = existing_df[[col for col in existing_df.columns if col in expected_cols]]
+    existing_df = existing_df.reindex(columns=expected_cols)
 
-    # 追加＋更新のみ
+    try:
+        existing_df.set_index(["工事見積No.", "明細キー"], inplace=True)
+        new_df.set_index(["工事見積No.", "明細キー"], inplace=True)
+    except KeyError:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "キー列が存在しません。"})
+
+    # 更新・追加のみ（削除なし）
     updated_df = existing_df.combine_first(new_df)
     updated_df.update(new_df)
 
-    # 保存・GitHub反映
-    updated_df.reset_index(drop=True, inplace=True)
+    updated_df.reset_index(inplace=True)
     updated_df.to_csv(save_path, index=False, encoding="utf-8-sig")
 
+    # GitHubへ反映
     try:
-        # GitHub連携
         GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
         repo_owner = "otameshi-web"
         repo_name = "kousu-app"
@@ -972,21 +973,12 @@ async def receive_general_sales_data(records: UploadFile = File(...)):
         put_resp = requests.put(api_url, headers=headers, json=data)
 
         if put_resp.status_code in [200, 201]:
-            return JSONResponse(content={
-                "status": "success",
-                "message": f"{len(new_df)} 件を更新・追加し、GitHub に反映しました"
-            })
+            return JSONResponse(content={"status": "success", "message": f"{len(new_df)} 件を保存・GitHubに反映しました"})
         else:
-            return JSONResponse(content={
-                "status": "partial_success",
-                "message": f"保存成功・GitHub反映失敗: {put_resp.json()}"
-            }, status_code=500)
+            return JSONResponse(content={"status": "partial_success", "message": f"保存成功・GitHub反映失敗: {put_resp.json()}"}, status_code=500)
 
     except Exception as e:
-        return JSONResponse(content={
-            "status": "error",
-            "message": f"保存成功・GitHub連携失敗: {str(e)}"
-        }, status_code=500)
+        return JSONResponse(content={"status": "error", "message": f"保存成功・GitHub連携失敗: {str(e)}"}, status_code=500)
 
 
 # ==========================

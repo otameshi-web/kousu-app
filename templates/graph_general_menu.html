@@ -2,9 +2,8 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>NEMMS【日本エレベーター管理マネージメントシステム】</title>
+    <title>一般工事売上メニュー</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
     <style>
         body {
             background-color: #fff8f0;
@@ -21,33 +20,43 @@
         }
         .sidebar {
             background-color: #000;
-            padding: 20px 40px;
-            text-align: left;
+            padding: 20px;
+            width: 200px;
+            float: left;
+            height: 100vh;
         }
         .btn-main {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
             background-color: #ff6600;
             border-color: #ff6600;
             color: white;
-            font-size: 1.25rem;
-            padding: 15px 30px;
+            font-size: 1rem;
+            padding: 10px;
             border-radius: 10px;
-            box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.2);
-            transition: 0.3s;
-            margin-top: 10px;
-            display: inline-block;
+            text-align: center;
             text-decoration: none;
         }
         .btn-main:hover {
             background-color: #cc5200;
             border-color: #cc5200;
         }
+        .content {
+            margin-left: 220px;
+            padding: 30px;
+        }
     </style>
 </head>
 <body>
     <header>NEMMS【日本エレベーター管理マネージメントシステム】</header>
     <div class="sidebar">
-        <a href="/graph/menu" class="btn btn-main">工数表</a><br>
-        <a href="/graph/general" class="btn btn-main">一般工事売上</a>
+        <a href="/graph/estimate/menu" class="btn-main">見積金額比較表</a>
+        <a href="/" class="btn-main">戻る</a>
+    </div>
+    <div class="content">
+        <h2>一般工事売上メニュー</h2>
+        <p>表示したいグラフの種類を選択してください。</p>
     </div>
 </body>
 </html>

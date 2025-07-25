@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>一般工事売上：社員比較グラフ</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <style>
+    body {
+      background-color: #fff8f0;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+    }
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 60px;
+      width: 100%;
+      background-color: #000;
+      color: white;
+      z-index: 1100;
+      display: flex;
+      align-items: center;
+      padding-left: 20px;
+      font-size: 1.4rem;
+    }
+    .sidebar {
+      width: 260px;
+      position: fixed;
+      top: 60px;
+      bottom: 0;
+      left: 0;
+      background-color: #000;
+      color: white;
+      z-index: 1000;
+      padding: 20px;
+    }
+    .btn-return {
+      background-color: #6c757d;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      text-decoration: none;
+      display: inline-block;
+      margin-top: 40px;
+    }
+    .btn-return:hover {
+      background-color: #5a6268;
+    }
+    .content {
+      margin-left: 260px;
+      padding: 100px 30px 30px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  NEMMS【一般工事売上：社員比較グラフ】
+</header>
+
+<div class="sidebar">
+  <h4>対象期</h4>
+  <p>{{ term }}</p>
+  <a href="/graph/estimate/total/compare" class="btn-return">&larr; 戻る</a>
+</div>
+
+<div class="content">
+  <div class="row mb-4 text-center">
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded">
+        <div class="fw-bold">💰 見積金額の合計</div>
+        <div class="fs-4 text-danger">&yen;{{ estimate_total }}</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded">
+        <div class="fw-bold">✅ 決定金額の合計</div>
+        <div class="fs-4 text-success">&yen;{{ decision_total }}</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded">
+        <div class="fw-bold">📊 1件あたり見積金額</div>
+        <div class="fs-4 text-primary">&yen;{{ estimate_per_case }}</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded">
+        <div class="fw-bold">🧮 決定率</div>
+        <div class="text-muted" style="line-height: 1.2; font-size: 1rem;">
+          金額：{{ money_decision_rate }}<br>
+          件数：{{ count_decision_rate }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>見積・決定金額比較（社員別）</h2>
+  <canvas id="amountChart" height="300"></canvas>
+  <br>
+  <canvas id="countChart" height="300"></canvas>
+</div>
+
+<script>
+  const labels = {{ persons | tojson }};
+  const estimateAmounts = {{ estimate_amounts | tojson }};
+  const decisionAmounts = {{ decision_amounts | tojson }};
+  const estimateCounts = {{ estimate_counts | tojson }};
+  const decisionCounts = {{ decision_counts | tojson }};
+
+  const amountChart = new Chart(document.getElementById('amountChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: '見積金額', data: estimateAmounts, backgroundColor: 'rgba(255, 99, 132, 0.6)' },
+        { label: '決定金額', data: decisionAmounts, backgroundColor: 'rgba(255, 159, 64, 0.6)' }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        datalabels: {
+          anchor: 'end',
+          align: 'end',
+          formatter: val => `${Math.floor(val / 10000)}万`,
+          color: '#000'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: '金額（円）' }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+
+  const maxCount = Math.max(...estimateCounts, ...decisionCounts);
+  const countChart = new Chart(document.getElementById('countChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: '見積件数', data: estimateCounts, backgroundColor: 'rgba(54, 162, 235, 0.6)' },
+        { label: '決定件数', data: decisionCounts, backgroundColor: 'rgba(255, 205, 86, 0.6)' }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        datalabels: {
+          anchor: 'end',
+          align: 'end',
+          formatter: val => `${val}件`,
+          color: '#000'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          suggestedMax: Math.ceil(maxCount * 1.3),
+          title: { display: true, text: '件数' }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+</script>
+
+</body>
+</html>

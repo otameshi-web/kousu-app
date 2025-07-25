@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>見積金額：全体期毎グラフ</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body {
+      background-color: #fff8f0;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+    }
+
+    header {
+      background-color: #000;
+      color: #ff6600;
+      padding: 20px 40px;
+      font-size: 1.5rem;
+      font-weight: bold;
+    }
+
+    .sidebar {
+      background-color: #000;
+      color: white;
+      padding: 20px;
+      width: 240px;
+      float: left;
+      height: 100vh;
+    }
+
+    .sidebar h4 {
+      color: #ffcc00;
+      margin-bottom: 10px;
+    }
+
+    .sidebar select {
+      width: 100%;
+      margin-bottom: 15px;
+      padding: 5px;
+    }
+
+    .btn-submit {
+      background-color: #ff6600;
+      border: none;
+      color: white;
+      padding: 10px;
+      width: 100%;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+
+    .btn-submit:hover {
+      background-color: #cc5200;
+    }
+
+    .content {
+      margin-left: 260px;
+      padding: 40px;
+    }
+
+    .btn-return {
+      background-color: #6c757d;
+      color: white;
+      padding: 10px 20px;
+      text-decoration: none;
+      display: inline-block;
+      border-radius: 8px;
+      margin-top: 40px;
+    }
+
+    .btn-return:hover {
+      background-color: #5a6268;
+    }
+  </style>
+</head>
+<body>
+  <header>NEMMS【見積金額：全体期毎グラフ】</header>
+
+  <div class="sidebar">
+    <form method="post" action="/graph/estimate/total/term/result">
+      <h4>期を選択</h4>
+      <select name="term" required>
+        {% for t in periods %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn-submit">表示</button>
+    </form>
+    <a href="/graph/estimate/total" class="btn-return">← 戻る</a>
+  </div>
+
+  <div class="content">
+    <h2>全体：期毎の見積金額グラフ</h2>
+    <p>期を選択し、「表示」ボタンを押してください。</p>
+  </div>
+</body>
+</html>

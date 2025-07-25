@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body {
+      background-color: #fff8f0;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    header {
+      background-color: #000;
+      color: white;
+      padding: 15px 20px;
+      font-size: 1.4rem;
+    }
+    .container {
+      padding: 30px;
+    }
+    table {
+      width: 100%;
+      background-color: white;
+    }
+    thead th {
+      background-color: #f8f9fa;
+      text-align: center;
+    }
+    tbody td {
+      vertical-align: top;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .scroll-container {
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    .back-button {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <header>{{ title }}</header>
+
+  <div class="container">
+    <h5 class="mb-3">件数: {{ records|length }} 件｜小計合計: ¥{{ '{:,}'.format(total_amount) }}</h5>
+
+    <div class="scroll-container">
+      <table class="table table-bordered table-sm">
+        <thead>
+          <tr>
+            <th>{{ date_label }}</th>
+            <th>見積№</th>
+            <th>建物名</th>
+            <th>詳細</th>
+            <th>小計</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in records %}
+          <tr>
+            <td>{{ row.date }}</td>
+            <td>{{ row.id }}</td>
+            <td>{{ row.name }}</td>
+            <td>{{ row.details|replace('・', '\n') }}</td>
+            <td>¥{{ '{:,}'.format(row.amount) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <a href="/graph/estimate/person/term" class="btn btn-secondary back-button">← 戻る</a>
+  </div>
+</body>
+</html>

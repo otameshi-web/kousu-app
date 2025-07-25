@@ -11,6 +11,8 @@ import requests
 from datetime import datetime
 from collections import defaultdict
 import re
+from fastapi.responses import RedirectResponse
+from pathlib import Path
 
 # === 基本設定 ===
 app = FastAPI()
@@ -22,6 +24,658 @@ CSV_PATH = os.path.join("data", "工数データ.csv")
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/graph/general")
+async def general_graph_menu(request: Request):
+    return templates.TemplateResponse("graph_general_menu.html", {"request": request})
+
+@app.get("/graph/estimate/menu")
+async def estimate_graph_menu(request: Request):
+    return templates.TemplateResponse("graph_estimate_menu.html", {"request": request})
+
+@app.get("/graph/estimate/person", response_class=HTMLResponse)
+async def graph_estimate_person_menu(request: Request):
+    return templates.TemplateResponse("graph_estimate_person_menu.html", {"request": request})
+
+@app.get("/graph/estimate/total", response_class=HTMLResponse)
+async def graph_estimate_total_menu(request: Request):
+    return templates.TemplateResponse("graph_estimate_total_menu.html", {"request": request})
+
+@app.get("/graph/estimate/person/term", response_class=HTMLResponse)
+async def graph_estimate_person_term(request: Request):
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    # ▼ CSV読み込み（文字コードの自動切替）
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    # ▼ 作成日列から有効な期（データが存在する）だけを選択肢に追加
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df = df.dropna(subset=["作成日"])  # 作成日が無効な行は除外
+
+        min_date = df["作成日"].min()
+        max_date = df["作成日"].max()
+
+        start_year = min_date.year if min_date.month >= 5 else min_date.year - 1
+        end_year = max_date.year if max_date.month >= 5 else max_date.year - 1
+
+        periods = []
+        for year in range(start_year, end_year + 1):
+            term_start = pd.Timestamp(year=year, month=5, day=1)
+            term_end = pd.Timestamp(year=year + 1, month=4, day=30)
+            if not df[(df["作成日"] >= term_start) & (df["作成日"] <= term_end)].empty:
+                periods.append(f"{year}年5月～{year+1}年4月")
+
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>期情報の取得失敗: {e}</h3>", status_code=500)
+
+    # ▼ 担当者プルダウン生成（削除済み除外）
+    if "担当者名" in df.columns:
+        persons = sorted([p for p in df["担当者名"].dropna().unique() if "削除済み" not in p])
+    else:
+        persons = []
+
+    return templates.TemplateResponse("graph_estimate_person_term.html", {
+        "request": request,
+        "periods": periods,
+        "persons": persons
+    })
+
+# エンドポイント：期毎グラフ（見積金額集計）
+@app.post("/graph/estimate/person/term/result", response_class=HTMLResponse)
+async def graph_estimate_person_term_result(request: Request):
+    form = await request.form()
+    term = form.get("term")
+    person = form.get("person")
+
+    if not term or not person:
+        return HTMLResponse(content="<h3>フォームデータの取得失敗: term または person が空です</h3>", status_code=400)
+
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df["決定日"] = pd.to_datetime(df["決定日"], errors="coerce")
+        y1 = int(term[:4])
+        start = pd.Timestamp(f"{y1}-05-01")
+        end = pd.Timestamp(f"{y1 + 1}-04-30")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>日付処理失敗: {e}</h3>", status_code=500)
+
+    # ▼ 担当者フィルタ共通
+    df = df[df["担当者名"] == person]
+
+    # ▼ 月ラベル
+    months_range = pd.date_range(start=start, periods=12, freq="MS")
+    months = [f"{d.year}年{d.month}月" for d in months_range]
+
+    # ▼ 金額集計：見積（作成日）
+    df_est = df[(df["作成日"] >= start) & (df["作成日"] <= end)].sort_values("作成日")
+    df_est = df_est.drop_duplicates("工事見積No.", keep="last")
+    df_est["年月"] = df_est["作成日"].dt.to_period("M").dt.to_timestamp()
+
+    summary_est = df_est.groupby("年月").agg(金額合計=("小計", "sum"), 件数=("工事見積No.", "count"))
+    summary_est = summary_est.reindex(months_range, fill_value=0)
+
+    estimate_amounts = summary_est["金額合計"].astype(int).tolist()
+    estimate_counts = summary_est["件数"].astype(int).tolist()
+
+    # ▼ 金額集計：決定（決定日）
+    df_dec = df[(df["決定日"].notna()) & (df["決定日"] >= start) & (df["決定日"] <= end)]
+    df_dec = df_dec.sort_values("決定日").drop_duplicates("工事見積No.", keep="last")
+    df_dec["年月"] = df_dec["決定日"].dt.to_period("M").dt.to_timestamp()
+
+    summary_dec = df_dec.groupby("年月").agg(金額合計=("小計", "sum"), 件数=("工事見積No.", "count"))
+    summary_dec = summary_dec.reindex(months_range, fill_value=0)
+
+    decision_amounts = summary_dec["金額合計"].astype(int).tolist()
+    decision_counts = summary_dec["件数"].astype(int).tolist()
+
+    # ▼ 合計金額と平均単価（フォーマット付き）
+    estimate_total_raw = sum(estimate_amounts)
+    decision_total_raw = sum(decision_amounts)
+    total_estimate_count = sum(estimate_counts)
+    total_decision_count = sum(decision_counts)
+    estimate_per_case_raw = estimate_total_raw // total_estimate_count if total_estimate_count > 0 else 0
+
+    estimate_total = f"{estimate_total_raw:,}"
+    decision_total = f"{decision_total_raw:,}"
+    estimate_per_case = f"{estimate_per_case_raw:,}"
+    
+    # ▼ 決定率（%表記）
+    money_decision_rate = f"{(decision_total_raw / estimate_total_raw * 100):.1f}%" if estimate_total_raw > 0 else "0%"
+    count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
+
+
+    return templates.TemplateResponse("graph_estimate_person_term_result.html", {
+        "request": request,
+        "term": term,
+        "person": person,
+        "months": months,
+        "estimate_amounts": estimate_amounts,
+        "estimate_counts": estimate_counts,
+        "decision_amounts": decision_amounts,
+        "decision_counts": decision_counts,
+        "estimate_total": estimate_total,
+        "decision_total": decision_total,
+        "estimate_per_case": estimate_per_case,
+        "money_decision_rate": money_decision_rate,
+        "count_decision_rate": count_decision_rate
+
+    })
+
+# --- 追加：月別棒グラフクリック時の詳細ページ表示 ---
+
+@app.get("/graph/estimate/person/term/detail", response_class=HTMLResponse)
+async def graph_estimate_detail_result(
+    request: Request,
+    term: str,
+    person: str,
+    year: int,
+    month: int,
+    type: str  # "estimate" または "decision"
+):
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df["決定日"] = pd.to_datetime(df["決定日"], errors="coerce")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>日付変換エラー: {e}</h3>", status_code=500)
+
+    # ▼ 期を日付で範囲化
+    y1 = int(term[:4])
+    start = pd.Timestamp(f"{y1}-05-01")
+    end = pd.Timestamp(f"{y1 + 1}-04-30")
+
+    # ▼ 抽出用カラム
+    date_column = "作成日" if type == "estimate" else "決定日"
+    label_prefix = "見積作成" if type == "estimate" else "決定見積"
+    date_label = "作成日" if type == "estimate" else "決定日"
+
+    # ▼ 担当者・日付・期フィルタ
+    df_month = df[
+        (df["担当者名"] == person) &
+        (df[date_column].notna()) &
+        (df[date_column].dt.year == year) &
+        (df[date_column].dt.month == month) &
+        (df[date_column] >= start) &
+        (df[date_column] <= end)
+    ]
+
+    # ▼ 工事見積No単位で詳細と小計を結合
+    grouped = df_month.groupby("工事見積No.")
+
+    records = []
+    for no, group in grouped:
+        row = group.iloc[0]
+        record = {
+            "date": row[date_column].strftime("%Y年%m月%d日"),
+            "id": row["工事見積No."],
+            "name": row["建物名"],
+            "details": "・".join(group["詳細"].dropna().astype(str)),
+            "amount": int(row["小計"])
+        }
+        records.append(record)
+
+    # ▼ タイトル
+    title = f"{year}年{month}月の{label_prefix}データ一覧（{person}）"
+
+    return templates.TemplateResponse("graph_estimate_detail_result.html", {
+        "request": request,
+        "title": title,
+        "records": records,
+        "total_amount": sum(r["amount"] for r in records),
+        "date_label": date_label  # ← 表ヘッダーに表示する日付種別
+    })
+
+@app.get("/graph/estimate/person/period", response_class=HTMLResponse)
+async def graph_estimate_person_period(request: Request):
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    # ▼ CSV読み込み（文字コードの自動切替）
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    # ▼ 作成日から年月リスト生成（yyyy年m月 形式）
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df = df.dropna(subset=["作成日"])
+        months = sorted(df["作成日"].dt.to_period("M").unique())
+        all_months = [f"{m.year}年{m.month}月" for m in months]
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>年月リストの生成失敗: {e}</h3>", status_code=500)
+
+    # ▼ 担当者名（削除済みは除外）
+    if "担当者名" in df.columns:
+        persons = sorted([p for p in df["担当者名"].dropna().unique() if "削除済み" not in p])
+    else:
+        persons = []
+
+    return templates.TemplateResponse("graph_estimate_person_period.html", {
+        "request": request,
+        "all_months": all_months,
+        "persons": persons
+    })
+
+@app.post("/graph/estimate/person/period/result", response_class=HTMLResponse)
+async def graph_estimate_person_period_result(request: Request):
+    form = await request.form()
+    start_str = form.get("start_month")  # 例: 2024年6月
+    end_str = form.get("end_month")
+    person = form.get("person")
+
+    if not start_str or not end_str or not person:
+        return HTMLResponse(content="<h3>フォームデータの取得失敗: start, end, person のいずれかが空です</h3>", status_code=400)
+
+    # 「2025年7月」→ Timestamp("2025-07-01")
+    def parse_ym_to_date(ym: str) -> pd.Timestamp:
+        m = re.match(r"(\d{4})年(\d{1,2})月", ym)
+        if m:
+            year, month = m.groups()
+            return pd.Timestamp(f"{year}-{int(month):02d}-01")
+        else:
+            raise ValueError(f"無効な年月形式: {ym}")
+
+    try:
+        start = parse_ym_to_date(start_str)
+        end = parse_ym_to_date(end_str) + pd.offsets.MonthEnd(0)  # 月末日まで含める
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>日付変換エラー: {e}</h3>", status_code=400)
+
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df["決定日"] = pd.to_datetime(df["決定日"], errors="coerce")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>日付処理失敗: {e}</h3>", status_code=500)
+
+    df = df[df["担当者名"] == person]
+
+    months_range = pd.date_range(start=start, end=end, freq="MS")
+    months = [f"{d.year}年{d.month}月" for d in months_range]
+
+    # ▼ 見積金額（作成日）
+    df_est = df[(df["作成日"] >= start) & (df["作成日"] <= end)].sort_values("作成日")
+    df_est = df_est.drop_duplicates("工事見積No.", keep="last")
+    df_est["年月"] = df_est["作成日"].dt.to_period("M").dt.to_timestamp()
+
+    summary_est = df_est.groupby("年月").agg(金額合計=("小計", "sum"), 件数=("工事見積No.", "count"))
+    summary_est = summary_est.reindex(months_range, fill_value=0)
+
+    estimate_amounts = summary_est["金額合計"].astype(int).tolist()
+    estimate_counts = summary_est["件数"].astype(int).tolist()
+
+    # ▼ 決定金額（決定日）
+    df_dec = df[(df["決定日"].notna()) & (df["決定日"] >= start) & (df["決定日"] <= end)]
+    df_dec = df_dec.sort_values("決定日").drop_duplicates("工事見積No.", keep="last")
+    df_dec["年月"] = df_dec["決定日"].dt.to_period("M").dt.to_timestamp()
+
+    summary_dec = df_dec.groupby("年月").agg(金額合計=("小計", "sum"), 件数=("工事見積No.", "count"))
+    summary_dec = summary_dec.reindex(months_range, fill_value=0)
+
+    decision_amounts = summary_dec["金額合計"].astype(int).tolist()
+    decision_counts = summary_dec["件数"].astype(int).tolist()
+
+    # ▼ 合計金額・平均単価
+    estimate_total_raw = sum(estimate_amounts)
+    decision_total_raw = sum(decision_amounts)
+    total_estimate_count = sum(estimate_counts)
+    total_decision_count = sum(decision_counts)
+    estimate_per_case_raw = estimate_total_raw // total_estimate_count if total_estimate_count > 0 else 0
+
+    estimate_total = f"{estimate_total_raw:,}"
+    decision_total = f"{decision_total_raw:,}"
+    estimate_per_case = f"{estimate_per_case_raw:,}"
+
+    money_decision_rate = f"{(decision_total_raw / estimate_total_raw * 100):.1f}%" if estimate_total_raw > 0 else "0%"
+    count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
+
+    return templates.TemplateResponse("graph_estimate_person_period_result.html", {
+        "request": request,
+        "start": start_str,
+        "end": end_str,
+        "start_month": start_str,
+        "end_month": end_str,
+        "person": person,
+        "months": months,
+        "estimate_amounts": estimate_amounts,
+        "estimate_counts": estimate_counts,
+        "decision_amounts": decision_amounts,
+        "decision_counts": decision_counts,
+        "estimate_total": estimate_total,
+        "decision_total": decision_total,
+        "estimate_per_case": estimate_per_case,
+        "money_decision_rate": money_decision_rate,
+        "count_decision_rate": count_decision_rate
+    })
+
+@app.get("/graph/estimate/person/period/detail", response_class=HTMLResponse)
+async def graph_estimate_person_period_detail(
+    request: Request,
+    start: str,
+    end: str,
+    year: int,
+    month: int,
+    person: str,
+    type: str  # 'estimate' または 'decision'
+):
+    import os
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    # CSV読み込み（エンコーディング対応）
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+    df["決定日"] = pd.to_datetime(df["決定日"], errors="coerce")
+
+    # ▼ 動的に日付・タイトル設定
+    date_column = "作成日" if type == "estimate" else "決定日"
+    label_prefix = "見積作成" if type == "estimate" else "決定見積"
+    date_label = "作成日" if type == "estimate" else "決定日"
+
+    # ▼ 担当者・年月フィルタ
+    df = df[
+        (df["担当者名"] == person) &
+        (df[date_column].notna()) &
+        (df[date_column].dt.year == year) &
+        (df[date_column].dt.month == month)
+    ]
+
+    # ▼ 工事見積No単位で集計
+    grouped = df.groupby("工事見積No.")
+
+    records = []
+    for no, group in grouped:
+        row = group.iloc[0]
+        record = {
+            "date": row[date_column].strftime("%Y年%m月%d日"),
+            "id": row["工事見積No."],
+            "name": row["建物名"],
+            "details": "・".join(group["詳細"].dropna().astype(str)),
+            "amount": int(row["小計"])
+        }
+        records.append(record)
+
+    title = f"{year}年{month}月の{label_prefix}データ一覧（{person}）"
+
+    return templates.TemplateResponse("graph_estimate_person_period_detail_result.html", {
+        "request": request,
+        "title": title,
+        "records": records,
+        "total_amount": sum([r["amount"] for r in records]),
+        "start": start,
+        "end": end,
+        "date_label": date_label  # ← テンプレートに渡す
+    })
+
+@app.get("/graph/estimate/total/term", response_class=HTMLResponse)
+async def graph_estimate_total_term(request: Request):
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df = df.dropna(subset=["作成日"])
+
+        min_date = df["作成日"].min()
+        max_date = df["作成日"].max()
+
+        start_year = min_date.year if min_date.month >= 5 else min_date.year - 1
+        end_year = max_date.year if max_date.month >= 5 else max_date.year - 1
+
+        periods = []
+        for year in range(start_year, end_year + 1):
+            term_start = pd.Timestamp(year=year, month=5, day=1)
+            term_end = pd.Timestamp(year=year + 1, month=4, day=30)
+            if not df[(df["作成日"] >= term_start) & (df["作成日"] <= term_end)].empty:
+                periods.append(f"{year}年5月～{year+1}年4月")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>期情報の取得失敗: {e}</h3>", status_code=500)
+
+    return templates.TemplateResponse("graph_estimate_total_term.html", {
+        "request": request,
+        "periods": periods
+    })
+
+@app.post("/graph/estimate/total/term/result", response_class=HTMLResponse)
+async def graph_estimate_total_term_result(request: Request, term: str = Form(...)):
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    # ▼ CSV読み込み（文字コードの自動切替）
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    # ▼ 日付・期間変換
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df["決定日"] = pd.to_datetime(df["決定日"], errors="coerce")
+
+        y1 = int(term[:4])
+        start = pd.Timestamp(f"{y1}-05-01")
+        end = pd.Timestamp(f"{y1 + 1}-04-30")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>日付処理失敗: {e}</h3>", status_code=500)
+
+    # ▼ 月ラベル（5月～翌年4月）
+    months_range = pd.date_range(start=start, periods=12, freq="MS")
+    months = [f"{d.year}年{d.month}月" for d in months_range]
+
+    # ▼ 見積金額集計（作業日が対象）
+    df_est = df[(df["作成日"] >= start) & (df["作成日"] <= end)].sort_values("作成日")
+    df_est = df_est.drop_duplicates("工事見積No.", keep="last")
+    df_est["年月"] = df_est["作成日"].dt.to_period("M").dt.to_timestamp()
+
+    summary_est = df_est.groupby("年月").agg(金額合計=("小計", "sum"), 件数=("工事見積No.", "count"))
+    summary_est = summary_est.reindex(months_range, fill_value=0)
+
+    estimate_amounts = summary_est["金額合計"].astype(int).tolist()
+    estimate_counts = summary_est["件数"].astype(int).tolist()
+
+    # ▼ 決定金額集計（決定日が対象）
+    df_dec = df[(df["決定日"].notna()) & (df["決定日"] >= start) & (df["決定日"] <= end)]
+    df_dec = df_dec.sort_values("決定日").drop_duplicates("工事見積No.", keep="last")
+    df_dec["年月"] = df_dec["決定日"].dt.to_period("M").dt.to_timestamp()
+
+    summary_dec = df_dec.groupby("年月").agg(金額合計=("小計", "sum"), 件数=("工事見積No.", "count"))
+    summary_dec = summary_dec.reindex(months_range, fill_value=0)
+
+    decision_amounts = summary_dec["金額合計"].astype(int).tolist()
+    decision_counts = summary_dec["件数"].astype(int).tolist()
+
+    # ▼ 合計・平均・決定率の計算
+    estimate_total_raw = sum(estimate_amounts)
+    decision_total_raw = sum(decision_amounts)
+    total_estimate_count = sum(estimate_counts)
+    total_decision_count = sum(decision_counts)
+    estimate_per_case_raw = estimate_total_raw // total_estimate_count if total_estimate_count > 0 else 0
+
+    estimate_total = f"{estimate_total_raw:,}"
+    decision_total = f"{decision_total_raw:,}"
+    estimate_per_case = f"{estimate_per_case_raw:,}"
+
+    money_decision_rate = f"{(decision_total_raw / estimate_total_raw * 100):.1f}%" if estimate_total_raw > 0 else "0%"
+    count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
+
+    return templates.TemplateResponse("graph_estimate_total_term_result.html", {
+        "request": request,
+        "term": term,
+        "months": months,
+        "estimate_amounts": estimate_amounts,
+        "decision_amounts": decision_amounts,
+        "estimate_counts": estimate_counts,
+        "decision_counts": decision_counts,
+        "estimate_total": estimate_total,
+        "decision_total": decision_total,
+        "estimate_per_case": estimate_per_case,
+        "money_decision_rate": money_decision_rate,
+        "count_decision_rate": count_decision_rate
+    })
+
+@app.get("/graph/estimate/total/compare", response_class=HTMLResponse)
+async def graph_estimate_total_compare(request: Request):
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    try:
+        df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+        df = df.dropna(subset=["作成日"])
+
+        min_date = df["作成日"].min()
+        max_date = df["作成日"].max()
+
+        start_year = min_date.year if min_date.month >= 5 else min_date.year - 1
+        end_year = max_date.year if max_date.month >= 5 else max_date.year - 1
+
+        periods = []
+        for year in range(start_year, end_year + 1):
+            term_start = pd.Timestamp(year=year, month=5, day=1)
+            term_end = pd.Timestamp(year=year + 1, month=4, day=30)
+            if not df[(df["作成日"] >= term_start) & (df["作成日"] <= term_end)].empty:
+                periods.append(f"{year}年5月～{year+1}年4月")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>期情報の取得失敗: {e}</h3>", status_code=500)
+
+    return templates.TemplateResponse("graph_estimate_total_compare.html", {
+        "request": request,
+        "periods": periods
+    })
+
+@app.post("/graph/estimate/total/compare/result", response_class=HTMLResponse)
+async def graph_estimate_total_compare_result(request: Request, term: str = Form(...)):
+    csv_path = os.path.join("data", "一般工事売上データ.csv")
+
+    # CSV読み込み
+    try:
+        try:
+            df = pd.read_csv(csv_path, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            df = pd.read_csv(csv_path, encoding="cp932")
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>CSV読み込みエラー: {e}</h3>", status_code=500)
+
+    # 日付変換と期間設定
+    df["作成日"] = pd.to_datetime(df["作成日"], errors="coerce")
+    df["決定日"] = pd.to_datetime(df["決定日"], errors="coerce")
+
+    y1 = int(term[:4])
+    start = pd.Timestamp(f"{y1}-05-01")
+    end = pd.Timestamp(f"{y1 + 1}-04-30")
+
+    # 担当者一覧
+    if "担当者名" not in df.columns:
+        return HTMLResponse(content="<h3>CSVに担当者名列が存在しません</h3>", status_code=500)
+    persons = sorted([p for p in df["担当者名"].dropna().unique() if "削除済み" not in p])
+
+    # ▼ 見積集計（作成日）
+    df_est = df[(df["作成日"] >= start) & (df["作成日"] <= end)].copy()
+    df_est = df_est.sort_values("作成日").drop_duplicates("工事見積No.", keep="last")
+    est_summary = df_est.groupby("担当者名").agg(
+        見積金額合計=("小計", "sum"),
+        見積件数=("工事見積No.", "count")
+    ).reindex(persons, fill_value=0)
+
+    # ▼ 決定集計（決定日）
+    df_dec = df[(df["決定日"].notna()) & (df["決定日"] >= start) & (df["決定日"] <= end)].copy()
+    df_dec = df_dec.sort_values("決定日").drop_duplicates("工事見積No.", keep="last")
+    dec_summary = df_dec.groupby("担当者名").agg(
+        決定金額合計=("小計", "sum"),
+        決定件数=("工事見積No.", "count")
+    ).reindex(persons, fill_value=0)
+
+    # ▼ グラフ用データ
+    estimate_amounts = est_summary["見積金額合計"].astype(int).tolist()
+    estimate_counts = est_summary["見積件数"].astype(int).tolist()
+    decision_amounts = dec_summary["決定金額合計"].astype(int).tolist()
+    decision_counts = dec_summary["決定件数"].astype(int).tolist()
+
+    # ▼ 全体集計
+    estimate_total_raw = sum(estimate_amounts)
+    decision_total_raw = sum(decision_amounts)
+    total_estimate_count = sum(estimate_counts)
+    total_decision_count = sum(decision_counts)
+    estimate_per_case_raw = estimate_total_raw // total_estimate_count if total_estimate_count > 0 else 0
+
+    estimate_total = f"{estimate_total_raw:,}"
+    decision_total = f"{decision_total_raw:,}"
+    estimate_per_case = f"{estimate_per_case_raw:,}"
+    money_decision_rate = f"{(decision_total_raw / estimate_total_raw * 100):.1f}%" if estimate_total_raw > 0 else "0%"
+    count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
+
+    return templates.TemplateResponse("graph_estimate_total_compare_result.html", {
+        "request": request,
+        "term": term,
+        "persons": persons,
+        "estimate_amounts": estimate_amounts,
+        "estimate_counts": estimate_counts,
+        "decision_amounts": decision_amounts,
+        "decision_counts": decision_counts,
+        "estimate_total": estimate_total,
+        "decision_total": decision_total,
+        "estimate_per_case": estimate_per_case,
+        "money_decision_rate": money_decision_rate,
+        "count_decision_rate": count_decision_rate
+    })
+
 
 @app.get("/graph/menu", response_class=HTMLResponse)
 async def graph_menu(request: Request):
@@ -40,6 +694,7 @@ async def graph_menu(request: Request):
         "request": request,
         "default_params": default_params
     })
+
 
 @app.get("/graph/all", response_class=HTMLResponse)
 async def graph_all_menu(request: Request):

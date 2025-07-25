@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>一般工事売上：期毎グラフ</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            background-color: #fff8f0;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        header {
+            background-color: #000;
+            color: white;
+            padding: 20px;
+            font-size: 1.5rem;
+        }
+
+        .sidebar {
+            width: 260px;
+            background-color: #000;
+            color: white;
+            padding: 20px;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .sidebar h4 {
+            color: #ffcc00;
+            margin-bottom: 10px;
+        }
+
+        .sidebar select {
+            width: 100%;
+            margin-bottom: 15px;
+            padding: 5px;
+        }
+
+        .sidebar .btn-submit {
+            background-color: #ff6600;
+            border: none;
+            padding: 10px 20px;
+            color: white;
+            border-radius: 8px;
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .sidebar .btn-submit:hover {
+            background-color: #cc5200;
+        }
+
+        .content {
+            margin-left: 280px;
+            padding: 30px;
+        }
+
+        .btn-return {
+            background-color: #6c757d;
+            color: white;
+            padding: 8px 20px;
+            border: none;
+            border-radius: 8px;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 20px;
+        }
+
+        .btn-return:hover {
+            background-color: #5a6268;
+        }
+    </style>
+</head>
+<body>
+    <header>NEMMS【一般工事売上：期毎グラフ】</header>
+
+    <div class="sidebar">
+        <form method="post" action="/graph/estimate/person/term/result">
+            <h4>期を選択</h4>
+            <select name="term" required>
+                {% for t in periods %}
+                <option value="{{ t }}">{{ t }}</option>
+                {% endfor %}
+            </select>
+
+            <h4>担当者を選択</h4>
+            <select name="person" required>
+                {% for p in persons %}
+                <option value="{{ p }}">{{ p }}</option>
+                {% endfor %}
+            </select>
+
+            <button type="submit" class="btn-submit">表示</button>
+        </form>
+
+        <a href="/graph/estimate/menu" class="btn-return">← 戻る</a>
+    </div>
+
+    <div class="content">
+        <h2>見積金額：期毎グラフ</h2>
+        <p>表示したい期と担当者を選択して「表示」ボタンを押してください。</p>
+    </div>
+</body>
+</html>

@@ -23,23 +23,23 @@ CSV_PATH = os.path.join("data", "工数データ.csv")
 # === グラフUI系ルート ===
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html", {})
 
 @app.get("/graph/general")
 async def general_graph_menu(request: Request):
-    return templates.TemplateResponse("graph_general_menu.html", {"request": request})
+    return templates.TemplateResponse(request, "graph_general_menu.html", {})
 
 @app.get("/graph/estimate/menu")
 async def estimate_graph_menu(request: Request):
-    return templates.TemplateResponse("graph_estimate_menu.html", {"request": request})
+    return templates.TemplateResponse(request, "graph_estimate_menu.html", {})
 
 @app.get("/graph/estimate/person", response_class=HTMLResponse)
 async def graph_estimate_person_menu(request: Request):
-    return templates.TemplateResponse("graph_estimate_person_menu.html", {"request": request})
+    return templates.TemplateResponse(request, "graph_estimate_person_menu.html", {})
 
 @app.get("/graph/estimate/total", response_class=HTMLResponse)
 async def graph_estimate_total_menu(request: Request):
-    return templates.TemplateResponse("graph_estimate_total_menu.html", {"request": request})
+    return templates.TemplateResponse(request, "graph_estimate_total_menu.html", {})
 
 @app.get("/graph/estimate/person/term", response_class=HTMLResponse)
 async def graph_estimate_person_term(request: Request):
@@ -81,8 +81,7 @@ async def graph_estimate_person_term(request: Request):
     else:
         persons = []
 
-    return templates.TemplateResponse("graph_estimate_person_term.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_person_term.html", {
         "periods": periods,
         "persons": persons
     })
@@ -160,8 +159,7 @@ async def graph_estimate_person_term_result(request: Request):
     count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
 
 
-    return templates.TemplateResponse("graph_estimate_person_term_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_person_term_result.html", {
         "term": term,
         "person": person,
         "months": months,
@@ -242,8 +240,7 @@ async def graph_estimate_detail_result(
     # ▼ タイトル
     title = f"{year}年{month}月の{label_prefix}データ一覧（{person}）"
 
-    return templates.TemplateResponse("graph_estimate_detail_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_detail_result.html", {
         "title": title,
         "records": records,
         "total_amount": sum(r["amount"] for r in records),
@@ -278,8 +275,7 @@ async def graph_estimate_person_period(request: Request):
     else:
         persons = []
 
-    return templates.TemplateResponse("graph_estimate_person_period.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_person_period.html", {
         "all_months": all_months,
         "persons": persons
     })
@@ -365,8 +361,7 @@ async def graph_estimate_person_period_result(request: Request):
     money_decision_rate = f"{(decision_total_raw / estimate_total_raw * 100):.1f}%" if estimate_total_raw > 0 else "0%"
     count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
 
-    return templates.TemplateResponse("graph_estimate_person_period_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_person_period_result.html", {
         "start": start_str,
         "end": end_str,
         "start_month": start_str,
@@ -439,8 +434,7 @@ async def graph_estimate_person_period_detail(
 
     title = f"{year}年{month}月の{label_prefix}データ一覧（{person}）"
 
-    return templates.TemplateResponse("graph_estimate_person_period_detail_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_person_period_detail_result.html", {
         "title": title,
         "records": records,
         "total_amount": sum([r["amount"] for r in records]),
@@ -480,8 +474,7 @@ async def graph_estimate_total_term(request: Request):
     except Exception as e:
         return HTMLResponse(content=f"<h3>期情報の取得失敗: {e}</h3>", status_code=500)
 
-    return templates.TemplateResponse("graph_estimate_total_term.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_total_term.html", {
         "periods": periods
     })
 
@@ -549,8 +542,7 @@ async def graph_estimate_total_term_result(request: Request, term: str = Form(..
     money_decision_rate = f"{(decision_total_raw / estimate_total_raw * 100):.1f}%" if estimate_total_raw > 0 else "0%"
     count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
 
-    return templates.TemplateResponse("graph_estimate_total_term_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_total_term_result.html", {
         "term": term,
         "months": months,
         "estimate_amounts": estimate_amounts,
@@ -595,8 +587,7 @@ async def graph_estimate_total_compare(request: Request):
     except Exception as e:
         return HTMLResponse(content=f"<h3>期情報の取得失敗: {e}</h3>", status_code=500)
 
-    return templates.TemplateResponse("graph_estimate_total_compare.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_total_compare.html", {
         "periods": periods
     })
 
@@ -661,8 +652,7 @@ async def graph_estimate_total_compare_result(request: Request, term: str = Form
     money_decision_rate = f"{(decision_total_raw / estimate_total_raw * 100):.1f}%" if estimate_total_raw > 0 else "0%"
     count_decision_rate = f"{(total_decision_count / total_estimate_count * 100):.1f}%" if total_estimate_count > 0 else "0%"
 
-    return templates.TemplateResponse("graph_estimate_total_compare_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_estimate_total_compare_result.html", {
         "term": term,
         "persons": persons,
         "estimate_amounts": estimate_amounts,
@@ -690,15 +680,14 @@ async def graph_menu(request: Request):
         "month": month,
         "work_types": ["点検及び検査"]
     }
-    return templates.TemplateResponse("graph_menu.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_menu.html", {
         "default_params": default_params
     })
 
 
 @app.get("/graph/all", response_class=HTMLResponse)
 async def graph_all_menu(request: Request):
-    return templates.TemplateResponse("graph_all_menu.html", {"request": request})
+    return templates.TemplateResponse(request, "graph_all_menu.html", {})
 @app.get("/graph/term", response_class=HTMLResponse)
 async def graph_term(request: Request):
     try:
@@ -718,8 +707,7 @@ async def graph_term(request: Request):
     term_list = sorted(df["期"].unique(), reverse=True)
     work_types = sorted([w for w in df["作業種別"].unique() if w != "小計"])
 
-    return templates.TemplateResponse("graph_term.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_term.html", {
         "terms": term_list,
         "work_types": work_types
     })
@@ -857,8 +845,7 @@ async def graph_term_result(
             "backgroundColor": "rgba(44, 160, 44, 0.7)"
         })
 
-    return templates.TemplateResponse("graph_term_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_term_result.html", {
         "term": term,
         "labels": labels,
         "time_datasets": time_datasets,
@@ -889,8 +876,7 @@ async def graph_month(request: Request):
     years = sorted(df["年"].unique(), reverse=True)
     months = sorted(df["月"].unique())
 
-    return templates.TemplateResponse("graph_month.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_month.html", {
         "years": years,
         "months": months,
         "work_types": work_types
@@ -1019,8 +1005,7 @@ async def graph_month_result(
             "backgroundColor": "rgba(44, 160, 44, 0.7)"
         })
 
-    return templates.TemplateResponse("graph_month_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_month_result.html", {
         "year": year,
         "month": month,
         "labels": users,
@@ -1037,7 +1022,7 @@ async def graph_month_result(
 
 @app.get("/graph/person", response_class=HTMLResponse)
 async def graph_person_menu(request: Request):
-    return templates.TemplateResponse("graph_person_menu.html", {"request": request})
+    return templates.TemplateResponse(request, "graph_person_menu.html", {})
 
 @app.get("/graph/person/type", response_class=HTMLResponse)
 async def graph_person_type_input(request: Request):
@@ -1066,8 +1051,7 @@ async def graph_person_type_input(request: Request):
         users = sorted(df["作業者"].dropna().unique())
         users = [u for u in users if "削除済み" not in u]
 
-        return templates.TemplateResponse("graph_person_type.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "graph_person_type.html", {
             "years": years,
             "months": months,
             "users": users
@@ -1133,8 +1117,7 @@ async def graph_person_type_result(
         {"label": "件数（件）", "data": count_data}
     ]
 
-    return templates.TemplateResponse("graph_person_type_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_person_type_result.html", {
         "labels": labels,
         "datasets": datasets,
         "year": year,
@@ -1172,8 +1155,7 @@ async def graph_person_period_input(request: Request):
         work_types = sorted(df["作業種別"].unique())
         work_types = [w for w in work_types if w != "小計"]
 
-        return templates.TemplateResponse("graph_person_period.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "graph_person_period.html", {
             "years": years,
             "months": months,
             "users": users,
@@ -1320,8 +1302,7 @@ async def graph_person_period_result(
             "backgroundColor": "rgba(44, 160, 44, 0.7)"
         })
 
-    return templates.TemplateResponse("graph_person_period_result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "graph_person_period_result.html", {
         "labels": ym_labels,
         "time_datasets": time_datasets,
         "count_datasets": count_datasets,
